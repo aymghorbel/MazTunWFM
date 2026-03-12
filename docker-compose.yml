@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  mazarine-timesheet:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mazarine-timesheet-app
+    ports:
+      - "3000:80"
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.mazarine.rule=Host(`localhost`)"
+      - "traefik.http.services.mazarine.loadbalancer.server.port=80"
+    networks:
+      - mazarine-network
+
+  # Optional: Add reverse proxy (Traefik) for production
+  traefik:
+    image: traefik:v2.10
+    container_name: mazarine-traefik
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+    ports:
+      - "8080:80"     # HTTP port
+      - "8081:8080"   # Traefik dashboard
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - mazarine-network
+    profiles:
+      - production
+
+networks:
+  mazarine-network:
+    driver: bridge
+
+volumes:
+  mazarine-data:

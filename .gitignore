@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+
+# Production builds
+build/
+dist/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Runtime
+pids/
+*.pid
+*.pid.lock
+coverage/
+
+# Docker volumes / runtime
+tmp/
+temp/
+
+# Database dumps (may contain sensitive data)
+*.dump
+*.sql
+
+# Claude local settings
+.claude/
