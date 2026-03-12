@@ -1,0 +1,73 @@
+name: Build & Deploy to Azure
+
+on:
+  push:
+    branches: [ master ]
+  workflow_dispatch:
+
+env:
+  ACR_REGISTRY: maztunwfmacr.azurecr.io   # ← update after ACR creation
+  API_IMAGE: maztunwfmacr.azurecr.io/api
+  FRONTEND_IMAGE: maztunwfmacr.azurecr.io/frontend
+  API_APP_NAME: maztunwfm-api              # ← your backend Web App name
+  FRONTEND_APP_NAME: maztunwfm-frontend    # ← your frontend Web App name
+  RESOURCE_GROUP: maztunwfm-rg             # ← your resource group name
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── Login to Azure Container Registry ──────────────────────────────────
+      - name: Log in to ACR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.ACR_REGISTRY }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      # ── Build & push backend ────────────────────────────────────────────────
+      - name: Build & push API image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.API_IMAGE }}:latest
+            ${{ env.API_IMAGE }}:${{ github.sha }}
+
+      # ── Build & push frontend ───────────────────────────────────────────────
+      # REACT_APP_API_URL is baked into the JS bundle at build time
+      - name: Build & push frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.frontend
+          push: true
+          build-args: |
+            REACT_APP_API_URL=${{ secrets.REACT_APP_API_URL }}
+          tags: |
+            ${{ env.FRONTEND_IMAGE }}:latest
+            ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}
+
+      # ── Deploy to Azure App Service ─────────────────────────────────────────
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy API to App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.API_APP_NAME }}
+          images: ${{ env.API_IMAGE }}:${{ github.sha }}
+
+      - name: Deploy Frontend to App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.FRONTEND_APP_NAME }}
+          images: ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}

@@ -33,6 +33,8 @@ const pool = new Pool({
   max: 10,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,
+  // Azure Database for PostgreSQL requires SSL; set DB_SSL=true in production
+  ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
 });
 
 // ── Security utilities ───────────────────────────────────────────────────────
