@@ -97,6 +97,7 @@ const authLimiter = rateLimit({
 });
 
 // Middleware
+app.set('trust proxy', 1); // Trust first proxy hop (Docker / reverse proxy)
 app.use(helmet());
 
 // Support comma-separated origins, e.g. "https://app.azurestaticapps.net,http://localhost:3005"
@@ -120,121 +121,6 @@ async function logAudit(actorId, action, detail, targetUserId = null) {
       [actorId, action, detail, targetUserId]
     );
   } catch (e) { console.error('Audit log error:', e.message); }
-}
-
-// ── Workflow engine helpers ───────────────────────────────────────────────────
-
-// Returns the most-specific active workflow_definition for the given entity type + user,
-// or null if none match (legacy single-step path is used).
-async function resolveWorkflow(entityType, userId, client) {
-  const uRow = await client.query('SELECT type, dept FROM users WHERE id=$1', [userId]);
-  if (!uRow.rows[0]) return null;
-  const { type: staffType, dept } = uRow.rows[0];
-  const wfRows = await client.query(
-    `SELECT * FROM workflow_definitions
-     WHERE entity_type=$1 AND is_active=true
-     ORDER BY (target_dept IS NOT NULL)::int DESC, (target_staff_type IS NOT NULL)::int DESC`,
-    [entityType]
-  );
-  for (const wf of wfRows.rows) {
-    const deptOk = !wf.target_dept || wf.target_dept === dept;
-    const typeOk = !wf.target_staff_type || wf.target_staff_type === staffType;
-    if (deptOk && typeOk) return wf;
-  }
-  return null;
-}
-
-// Evaluates a step's conditions array against the submission context.
-// Returns true if all conditions pass (AND logic), or if there are no conditions.
-function evaluateConditions(conditions, context) {
-  if (!Array.isArray(conditions) || conditions.length === 0) return true;
-  for (const cond of conditions) {
-    const actual = context[cond.field];
-    const val = cond.value;
-    let pass;
-    switch (cond.operator) {
-      case 'gt':  pass = Number(actual) > Number(val); break;
-      case 'gte': pass = Number(actual) >= Number(val); break;
-      case 'lt':  pass = Number(actual) < Number(val); break;
-      case 'lte': pass = Number(actual) <= Number(val); break;
-      case 'eq':  pass = String(actual) === String(val); break;
-      case 'neq': pass = String(actual) !== String(val); break;
-      case 'in':           pass = Array.isArray(val) ? val.map(String).includes(String(actual)) : String(actual) === String(val); break;
-      case 'contains':     pass = Array.isArray(actual) ? actual.map(String).includes(String(val)) : String(actual).includes(String(val)); break;
-      case 'not_contains': pass = Array.isArray(actual) ? !actual.map(String).includes(String(val)) : !String(actual).includes(String(val)); break;
-      default:    pass = false;
-    }
-    if (!pass) return false;
-  }
-  return true;
-}
-
-// Resolves the approver_id for a step at runtime.
-// Returns null for role-type steps (any user with the matching role can act).
-async function resolveApproverForStep(step, userId, client) {
-  if (step.approver_type === 'direct_manager') {
-    const r = await client.query('SELECT manager_id FROM users WHERE id=$1', [userId]);
-    return r.rows[0]?.manager_id || null;
-  }
-  if (step.approver_type === 'user') return step.approver_value;
-  return null; // role-type — no pre-assigned individual
-}
-
-// Creates a workflow_instance and workflow_approvals rows for each step.
-// Returns the instanceId.
-async function createWorkflowInstance(wfDef, entityType, entityRef, context, client) {
-  const instRow = await client.query(
-    `INSERT INTO workflow_instances (workflow_id, entity_type, entity_ref, status)
-     VALUES ($1,$2,$3,'in_progress') RETURNING id`,
-    [wfDef.id, entityType, entityRef]
-  );
-  const instanceId = instRow.rows[0].id;
-  const steps = (Array.isArray(wfDef.steps) ? wfDef.steps : []).sort((a, b) => a.order - b.order);
-  for (let i = 0; i < steps.length; i++) {
-    const step = steps[i];
-    const shouldSkip = step.conditions?.length > 0 && !evaluateConditions(step.conditions, context);
-    const approverId = shouldSkip ? null : await resolveApproverForStep(step, context.userId, client);
-    await client.query(
-      `INSERT INTO workflow_approvals (instance_id, step_index, step_label, approver_id, status)
-       VALUES ($1,$2,$3,$4,$5)`,
-      [instanceId, i, step.label || `Step ${i + 1}`, approverId, shouldSkip ? 'skipped' : 'pending']
-    );
-  }
-  return instanceId;
-}
-
-// Advances a workflow instance after a step is actioned.
-// Propagates approved/rejected status to the entity when all steps are resolved.
-// Returns { complete, outcome, nextStep }.
-async function advanceWorkflow(instanceId, client) {
-  // Lock the instance to prevent concurrent state changes
-  const instRow = await client.query(
-    'SELECT * FROM workflow_instances WHERE id=$1 FOR UPDATE', [instanceId]
-  );
-  const instance = instRow.rows[0];
-  if (!instance || instance.status !== 'in_progress') {
-    return { complete: true, outcome: instance?.status || 'unknown' };
-  }
-  const appRows = await client.query(
-    'SELECT * FROM workflow_approvals WHERE instance_id=$1 ORDER BY step_index', [instanceId]
-  );
-  const approvals = appRows.rows;
-  // Any rejection immediately terminates the workflow
-  if (approvals.some(a => a.status === 'rejected')) {
-    await client.query(
-      `UPDATE workflow_instances SET status='rejected', updated_at=NOW() WHERE id=$1`, [instanceId]
-    );
-    return { complete: true, outcome: 'rejected' };
-  }
-  // Check for the first pending step
-  const nextPending = approvals.find(a => a.status === 'pending');
-  if (!nextPending) {
-    await client.query(
-      `UPDATE workflow_instances SET status='approved', updated_at=NOW() WHERE id=$1`, [instanceId]
-    );
-    return { complete: true, outcome: 'approved' };
-  }
-  return { complete: false, nextStep: nextPending };
 }
 
 // ── Email service ────────────────────────────────────────────────────────────
@@ -699,17 +585,72 @@ app.delete('/api/users/:id/totp', authenticateToken, requireAdmin, async (req, r
   }
 });
 
+// ===== COMPANY ENTITIES =====
+
+app.get('/api/company-entities', authenticateToken, async (req, res) => {
+  try {
+    const r = await pool.query('SELECT * FROM company_entities ORDER BY code');
+    res.json(r.rows);
+  } catch (err) {
+    console.error('Get company entities error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.post('/api/company-entities', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { code, name } = req.body;
+    if (!code || !name) return res.status(400).json({ error: 'code and name required' });
+    const r = await pool.query(
+      'INSERT INTO company_entities (code, name) VALUES ($1,$2) RETURNING *',
+      [code, name]
+    );
+    res.status(201).json(r.rows[0]);
+  } catch (err) {
+    console.error('Create company entity error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.put('/api/company-entities/:id', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { code, name, active } = req.body;
+    const r = await pool.query(
+      'UPDATE company_entities SET code=$1, name=$2, active=$3 WHERE id=$4 RETURNING *',
+      [code, name, active !== false, req.params.id]
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error('Update company entity error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.delete('/api/company-entities/:id', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const used = await pool.query('SELECT 1 FROM projects WHERE entity_id=$1 LIMIT 1', [req.params.id]);
+    if (used.rows.length) return res.status(409).json({ error: 'Entity is used by one or more projects' });
+    await pool.query('DELETE FROM company_entities WHERE id=$1', [req.params.id]);
+    res.json({ message: 'Deleted' });
+  } catch (err) {
+    console.error('Delete company entity error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // ===== PROJECTS ROUTES =====
 
 // Get all projects
 app.get('/api/projects', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT id, code, name, type, dept, open, field_allowed, office_allowed, color
-      FROM projects
-      ORDER BY open DESC, code
+      SELECT p.*, ce.code AS entity_code, ce.name AS entity_name
+      FROM projects p
+      LEFT JOIN company_entities ce ON ce.id = p.entity_id
+      ORDER BY p.open DESC, p.code
     `);
-    
+
     res.json(result.rows);
   } catch (err) {
     console.error('Get projects error:', err);
@@ -720,15 +661,15 @@ app.get('/api/projects', authenticateToken, async (req, res) => {
 // Create project (admin only)
 app.post('/api/projects', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { code, name, type, dept, open, fieldAllowed, officeAllowed, color } = req.body;
-    
+    const { code, name, type, dept, open, fieldAllowed, officeAllowed, color, expiryDate, entityId } = req.body;
+
     const result = await pool.query(
-      `INSERT INTO projects (code, name, type, dept, open, field_allowed, office_allowed, color)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO projects (code, name, type, dept, open, field_allowed, office_allowed, color, expiry_date, entity_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING *`,
-      [code, name, type, dept, open !== false, fieldAllowed !== false, officeAllowed !== false, color || '#7c3aed']
+      [code, name, type, dept, open !== false, fieldAllowed !== false, officeAllowed !== false, color || '#7c3aed', expiryDate || null, entityId || null]
     );
-    
+
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('Create project error:', err);
@@ -739,21 +680,21 @@ app.post('/api/projects', authenticateToken, requireAdmin, async (req, res) => {
 // Update project (admin only)
 app.put('/api/projects/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { code, name, type, dept, open, fieldAllowed, officeAllowed, color } = req.body;
-    
+    const { code, name, type, dept, open, fieldAllowed, officeAllowed, color, expiryDate, entityId } = req.body;
+
     const result = await pool.query(
-      `UPDATE projects 
-       SET code = $1, name = $2, type = $3, dept = $4, open = $5, 
-           field_allowed = $6, office_allowed = $7, color = $8
-       WHERE id = $9
+      `UPDATE projects
+       SET code = $1, name = $2, type = $3, dept = $4, open = $5,
+           field_allowed = $6, office_allowed = $7, color = $8, expiry_date = $9, entity_id = $10
+       WHERE id = $11
        RETURNING *`,
-      [code, name, type, dept, open, fieldAllowed, officeAllowed, color, req.params.id]
+      [code, name, type, dept, open, fieldAllowed, officeAllowed, color, expiryDate || null, entityId || null, req.params.id]
     );
-    
+
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Project not found' });
     }
-    
+
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Update project error:', err);
@@ -1074,53 +1015,10 @@ app.post('/api/requests', authenticateToken, async (req, res) => {
       [userId, type, start, end, comment||null, daysCount, durationHours||null, halfDayStart||null, halfDayEnd||null, balanceSource||'annual', authStartTime||null, authEndTime||null]
     );
 
-    // ── Workflow integration ─────────────────────────────────────────────────
-    const wfEntityType = type === 'Temporary Authorization' ? 'temp_auth' : 'leave';
-    const wfEntityRef = String(result.rows[0].id);
-    const wfUserRow = await client.query('SELECT type, dept FROM users WHERE id=$1', [userId]);
-    const wfContext = {
-      days: Number(daysCount) || 0,
-      leave_type: type,
-      request_type: type,
-      activity: type,          // for leave/temp_auth the "activity" is the request type itself
-      staff_type: wfUserRow.rows[0]?.type,
-      department: wfUserRow.rows[0]?.dept,
-      userId: Number(userId),
-    };
-    const wfDef = await resolveWorkflow(wfEntityType, Number(userId), client);
-    let wfInstanceId = null;
-    if (wfDef) {
-      wfInstanceId = await createWorkflowInstance(wfDef, wfEntityType, wfEntityRef, wfContext, client);
-      await client.query('UPDATE requests SET workflow_instance_id=$1 WHERE id=$2', [wfInstanceId, result.rows[0].id]);
-    }
-    // ────────────────────────────────────────────────────────────────────────
-
     await client.query('COMMIT');
-    res.status(201).json({ ...result.rows[0], daysDeducted, recoveryDeducted, wfInstanceId });
+    res.status(201).json({ ...result.rows[0], daysDeducted, recoveryDeducted });
 
     // Notify approver(s) asynchronously (email + push)
-    // If a workflow is in use, notify the first pending step's approver instead of the manager
-    if (wfInstanceId) {
-      const firstStepRow = await pool.query(
-        `SELECT wa.*, u.email AS approver_email, u.name AS approver_name
-         FROM workflow_approvals wa LEFT JOIN users u ON u.id=wa.approver_id
-         WHERE wa.instance_id=$1 AND wa.status='pending' ORDER BY wa.step_index LIMIT 1`,
-        [wfInstanceId]
-      );
-      const firstStep = firstStepRow.rows[0];
-      if (firstStep?.approver_id) {
-        const empRow = await pool.query('SELECT name FROM users WHERE id=$1', [userId]);
-        const empName = empRow.rows[0]?.name || 'Employee';
-        sendPush(firstStep.approver_id, `📋 New ${type} request`, `${empName} · ${start}${end && end !== start ? ' → ' + end : ''} (${daysCount || '—'}d)`, '/').catch(() => {});
-        sendEmailSafe(firstStep.approver_email, `New ${escapeHtml(type)} request from ${escapeHtml(empName)}`,
-          emailWrap(`New ${escapeHtml(type)} Request`,
-            `<b>${escapeHtml(empName)}</b> submitted a <b>${escapeHtml(type)}</b> request.<br><br>
-             <b>Period:</b> ${escapeHtml(start)} → ${escapeHtml(end||start)}<br>
-             <b>Step:</b> ${escapeHtml(firstStep.step_label || 'Review')}<br>
-             <br>Please log in to approve.`)).catch(() => {});
-      }
-      return; // skip the legacy notification block below
-    }
     Promise.all([loadEmailConfig(), loadPushCfg()]).then(async ([emailCfg, pushCfg]) => {
       const empRow = await pool.query('SELECT name FROM users WHERE id=$1', [userId]);
       const empName = empRow.rows[0]?.name || 'Employee';
@@ -1171,25 +1069,7 @@ app.post('/api/requests', authenticateToken, async (req, res) => {
 app.put('/api/requests/:id', authenticateToken, async (req, res) => {
   const client = await pool.connect();
   try {
-    const { status, reviewComment, adminOverride } = req.body;
-    const isAdmin = ['superadmin', 'admin'].includes(req.user.role);
-
-    // Workflow gate: block direct approve/reject if a workflow instance is in-progress
-    if (['Approved', 'Rejected'].includes(status) && !(isAdmin && adminOverride)) {
-      const wfCheck = await client.query(
-        `SELECT wi.id FROM workflow_instances wi
-         JOIN requests r ON r.workflow_instance_id = wi.id
-         WHERE r.id=$1 AND wi.status='in_progress'`,
-        [req.params.id]
-      );
-      if (wfCheck.rows.length > 0) {
-        client.release();
-        return res.status(400).json({
-          error: 'This request is managed by a workflow. Use POST /api/workflow-approvals/:instanceId/step/:stepIndex.',
-          workflowInstanceId: wfCheck.rows[0].id
-        });
-      }
-    }
+    const { status, reviewComment } = req.body;
 
     await client.query('BEGIN');
 
@@ -1460,25 +1340,7 @@ app.post('/api/timesheets', authenticateToken, async (req, res) => {
 // Update timesheet status
 app.put('/api/timesheets/status', authenticateToken, async (req, res) => {
   try {
-    const { userId, year, month, status, reviewComment, adminOverride } = req.body;
-    const isAdmin = ['superadmin', 'admin'].includes(req.user.role);
-
-    // Workflow gate: block direct approve/reject if a workflow instance is in-progress
-    // (admin override bypasses this gate)
-    if (['approved', 'rejected'].includes(status) && !(isAdmin && adminOverride)) {
-      const existInst = await pool.query(
-        `SELECT wi.id FROM workflow_instances wi
-         JOIN timesheet_status ts ON ts.workflow_instance_id = wi.id
-         WHERE ts.user_id=$1 AND ts.year=$2 AND ts.month=$3 AND wi.status='in_progress'`,
-        [userId, year, month]
-      );
-      if (existInst.rows.length > 0) {
-        return res.status(400).json({
-          error: 'This timesheet is managed by a workflow. Use POST /api/workflow-approvals/:instanceId/step/:stepIndex to approve/reject.',
-          workflowInstanceId: existInst.rows[0].id
-        });
-      }
-    }
+    const { userId, year, month, status, reviewComment } = req.body;
 
     const result = await pool.query(
       `INSERT INTO timesheet_status (user_id, year, month, status, submitted_at, review_comment, reviewed_by, reviewed_at)
@@ -1569,60 +1431,13 @@ app.put('/api/timesheets/status', authenticateToken, async (req, res) => {
     const MONTH_NAMES_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     logAudit(req.user.id, actionMap[status] || 'timesheet_status_changed', `${status.charAt(0).toUpperCase()+status.slice(1)} timesheet for ${tsUserName} — ${MONTH_NAMES_SHORT[month-1]} ${year}`, Number(userId));
 
-    // ── Workflow instance creation on submit ──────────────────────────────────
-    let tsWfInstanceId = null;
-    if (status === 'submitted') {
-      const wfDef = await resolveWorkflow('timesheet', Number(userId), pool);
-      if (wfDef) {
-        const actRows = await pool.query(
-          'SELECT DISTINCT activity FROM timesheet_entries WHERE user_id=$1 AND year=$2 AND month=$3 AND activity IS NOT NULL',
-          [userId, year, month]
-        );
-        const tsActivityList = actRows.rows.map(r => r.activity).filter(Boolean);
-        const wfContext = {
-          days: null,
-          activity: tsActivityList,      // array of distinct activity names used in this timesheet
-          request_type: 'timesheet',
-          staff_type: tsUser.type,
-          department: tsUser.dept,
-          userId: Number(userId),
-        };
-        const entityRef = `${userId}-${year}-${month}`;
-        const wfClient = await pool.connect();
-        try {
-          await wfClient.query('BEGIN');
-          tsWfInstanceId = await createWorkflowInstance(wfDef, 'timesheet', entityRef, wfContext, wfClient);
-          await wfClient.query('UPDATE timesheet_status SET workflow_instance_id=$1 WHERE user_id=$2 AND year=$3 AND month=$4', [tsWfInstanceId, userId, year, month]);
-          await wfClient.query('COMMIT');
-        } catch (wfErr) { await wfClient.query('ROLLBACK'); console.error('WF instance error:', wfErr); }
-        finally { wfClient.release(); }
-      }
-    }
-    // ─────────────────────────────────────────────────────────────────────────
-
-    res.json({ ...row, recoveryAccrued, wfInstanceId: tsWfInstanceId });
+    res.json({ ...row, recoveryAccrued });
 
     // Notifications (email + push)
     Promise.all([loadEmailConfig(), loadPushCfg()]).then(async ([emailCfg, pushCfg]) => {
       const periodLabel = `${MONTH_NAMES[month-1]} ${year}`;
       if (status === 'submitted') {
-        // If workflow is running, notify first-step approver; otherwise notify direct manager
-        if (tsWfInstanceId) {
-          const firstStepRow = await pool.query(
-            `SELECT wa.*, u.email AS approver_email, u.name AS approver_name
-             FROM workflow_approvals wa LEFT JOIN users u ON u.id=wa.approver_id
-             WHERE wa.instance_id=$1 AND wa.status='pending' ORDER BY wa.step_index LIMIT 1`,
-            [tsWfInstanceId]
-          );
-          const firstStep = firstStepRow.rows[0];
-          if (firstStep?.approver_id) {
-            sendPush(firstStep.approver_id, '📋 Timesheet submitted', `${tsUserName} — ${periodLabel}`, '/').catch(() => {});
-            sendEmailSafe(firstStep.approver_email, `${tsUserName} submitted timesheet for ${periodLabel}`,
-              emailWrap('Timesheet Submitted',
-                `<b>${escapeHtml(tsUserName)}</b> submitted their timesheet for <b>${escapeHtml(periodLabel)}</b>.<br><br>
-                 <b>Step:</b> ${escapeHtml(firstStep.step_label || 'Review')}<br>Please log in to approve.`)).catch(() => {});
-          }
-        } else if (tsUser.manager_id) {
+        if (tsUser.manager_id) {
           if (emailCfg.provider !== 'disabled' && emailCfg.notify_ts_submit) {
             const mgrRow = await pool.query('SELECT email FROM users WHERE id=$1', [tsUser.manager_id]);
             if (mgrRow.rows[0]?.email) {
@@ -1828,6 +1643,54 @@ app.get('/api/audit-log', authenticateToken, requirePrivileged, async (req, res)
     res.json(result.rows);
   } catch (err) {
     console.error('Audit log error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ===== ALLOCATION REPORT =====
+
+app.get('/api/reports/allocation', authenticateToken, requirePrivileged, async (req, res) => {
+  try {
+    const { year, month } = req.query;
+    const result = await pool.query(`
+      WITH alloc_rows AS (
+        SELECT
+          u.dept,
+          (alloc->>'projectId')::int    AS project_id,
+          (alloc->>'allocation')::float AS alloc_frac
+        FROM timesheet_entries te
+        CROSS JOIN LATERAL jsonb_array_elements(te.allocations) AS alloc
+        JOIN timesheet_status ts
+          ON ts.user_id=te.user_id AND ts.year=te.year AND ts.month=te.month
+        JOIN users u ON u.id=te.user_id
+        WHERE te.year=$1 AND te.month=$2
+          AND ts.status IN ('submitted','approved')
+          AND jsonb_array_length(te.allocations) > 0
+      ),
+      dept_totals AS (
+        SELECT dept, SUM(alloc_frac) AS dept_total FROM alloc_rows GROUP BY dept
+      ),
+      proj_dept AS (
+        SELECT project_id, dept, SUM(alloc_frac) AS pd_total FROM alloc_rows GROUP BY project_id, dept
+      )
+      SELECT
+        p.id           AS project_id,
+        p.code         AS project_code,
+        p.name         AS project_name,
+        p.type         AS project_type,
+        ce.code        AS entity_code,
+        ce.name        AS entity_name,
+        pd.dept,
+        ROUND((pd.pd_total / NULLIF(dt.dept_total,0) * 100)::numeric, 1) AS alloc_pct
+      FROM proj_dept pd
+      JOIN dept_totals dt ON dt.dept = pd.dept
+      JOIN projects p ON p.id = pd.project_id
+      LEFT JOIN company_entities ce ON ce.id = p.entity_id
+      ORDER BY p.code, pd.dept
+    `, [year, month]);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Allocation report error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -2524,240 +2387,6 @@ app.post('/api/exports/payroll', authenticateToken, requirePrivileged, async (re
     console.error('Payroll export error:', err);
     res.status(500).json({ error: err.message || 'Export failed' });
   }
-});
-
-// ===== WORKFLOW DEFINITIONS (CRUD) =====
-
-app.get('/api/workflows', authenticateToken, requireAdmin, async (req, res) => {
-  try {
-    const { entityType, active } = req.query;
-    let q = 'SELECT wd.*, u.name AS creator_name FROM workflow_definitions wd LEFT JOIN users u ON u.id=wd.created_by';
-    const params = [];
-    const conds = [];
-    if (entityType) { params.push(entityType); conds.push(`wd.entity_type=$${params.length}`); }
-    if (active !== undefined) { params.push(active === 'true'); conds.push(`wd.is_active=$${params.length}`); }
-    if (conds.length) q += ' WHERE ' + conds.join(' AND ');
-    q += ' ORDER BY wd.entity_type, wd.name';
-    const result = await pool.query(q, params);
-    res.json(result.rows);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.post('/api/workflows', authenticateToken, requireAdmin, async (req, res) => {
-  const { name, entity_type, target_dept, target_staff_type, is_active = true, steps = [] } = req.body;
-  if (!name || !entity_type) return res.status(400).json({ error: 'name and entity_type are required' });
-  if (!['timesheet', 'leave', 'temp_auth'].includes(entity_type))
-    return res.status(400).json({ error: 'Invalid entity_type' });
-  try {
-    const r = await pool.query(
-      `INSERT INTO workflow_definitions (name, entity_type, target_dept, target_staff_type, is_active, steps, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-      [name, entity_type, target_dept || null, target_staff_type || null, is_active, JSON.stringify(steps), req.user.id]
-    );
-    logAudit(req.user.id, 'workflow_created', `Created workflow "${name}" (${entity_type})`);
-    res.status(201).json(r.rows[0]);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.put('/api/workflows/:id', authenticateToken, requireAdmin, async (req, res) => {
-  const { name, entity_type, target_dept, target_staff_type, is_active, steps } = req.body;
-  try {
-    const existing = await pool.query('SELECT * FROM workflow_definitions WHERE id=$1', [req.params.id]);
-    if (!existing.rows[0]) return res.status(404).json({ error: 'Not found' });
-    const updated = {
-      name: name ?? existing.rows[0].name,
-      entity_type: entity_type ?? existing.rows[0].entity_type,
-      target_dept: Object.prototype.hasOwnProperty.call(req.body, 'target_dept') ? (target_dept || null) : existing.rows[0].target_dept,
-      target_staff_type: Object.prototype.hasOwnProperty.call(req.body, 'target_staff_type') ? (target_staff_type || null) : existing.rows[0].target_staff_type,
-      is_active: is_active ?? existing.rows[0].is_active,
-      steps: steps ?? existing.rows[0].steps,
-    };
-    const r = await pool.query(
-      `UPDATE workflow_definitions SET name=$1, entity_type=$2, target_dept=$3, target_staff_type=$4,
-       is_active=$5, steps=$6, updated_at=NOW() WHERE id=$7 RETURNING *`,
-      [updated.name, updated.entity_type, updated.target_dept, updated.target_staff_type,
-       updated.is_active, JSON.stringify(updated.steps), req.params.id]
-    );
-    logAudit(req.user.id, 'workflow_updated', `Updated workflow "${updated.name}"`);
-    res.json(r.rows[0]);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.delete('/api/workflows/:id', authenticateToken, requireAdmin, async (req, res) => {
-  try {
-    const inProgress = await pool.query(
-      `SELECT id FROM workflow_instances WHERE workflow_id=$1 AND status='in_progress' LIMIT 1`, [req.params.id]
-    );
-    if (inProgress.rows.length > 0)
-      return res.status(409).json({ error: 'Cannot delete: workflow has active in-progress instances.' });
-    const wf = await pool.query('DELETE FROM workflow_definitions WHERE id=$1 RETURNING name', [req.params.id]);
-    if (!wf.rows[0]) return res.status(404).json({ error: 'Not found' });
-    logAudit(req.user.id, 'workflow_deleted', `Deleted workflow "${wf.rows[0].name}"`);
-    res.json({ message: 'Deleted' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// GET the workflow instance + step approvals for a specific entity (used by progress indicator)
-app.get('/api/workflows/instances/:entityType/:entityRef', authenticateToken, async (req, res) => {
-  try {
-    const { entityType, entityRef } = req.params;
-    const instRow = await pool.query(
-      `SELECT wi.*, wd.name AS workflow_name, wd.steps AS workflow_steps
-       FROM workflow_instances wi
-       LEFT JOIN workflow_definitions wd ON wd.id = wi.workflow_id
-       WHERE wi.entity_type=$1 AND wi.entity_ref=$2
-       ORDER BY wi.created_at DESC LIMIT 1`,
-      [entityType, entityRef]
-    );
-    if (!instRow.rows[0]) return res.json(null);
-    const instance = instRow.rows[0];
-    const approvalRows = await pool.query(
-      `SELECT wa.*, u.name AS approver_name
-       FROM workflow_approvals wa
-       LEFT JOIN users u ON u.id = wa.approver_id
-       WHERE wa.instance_id=$1 ORDER BY wa.step_index`,
-      [instance.id]
-    );
-    res.json({ instance, approvals: approvalRows.rows });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// ===== WORKFLOW STEP APPROVAL =====
-
-app.post('/api/workflow-approvals/:instanceId/step/:stepIndex', authenticateToken, async (req, res) => {
-  const { action, comment } = req.body;
-  const instanceId = Number(req.params.instanceId);
-  const stepIndex = Number(req.params.stepIndex);
-  if (!['approved', 'rejected'].includes(action))
-    return res.status(400).json({ error: 'action must be "approved" or "rejected"' });
-
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-
-    // Load instance
-    const instRow = await client.query(
-      'SELECT wi.*, wd.steps AS workflow_steps FROM workflow_instances wi JOIN workflow_definitions wd ON wd.id=wi.workflow_id WHERE wi.id=$1',
-      [instanceId]
-    );
-    const instance = instRow.rows[0];
-    if (!instance) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Workflow instance not found' }); }
-    if (instance.status !== 'in_progress') { await client.query('ROLLBACK'); return res.status(400).json({ error: 'Workflow is not in progress' }); }
-
-    // Load target step approval
-    const apRow = await client.query(
-      'SELECT * FROM workflow_approvals WHERE instance_id=$1 AND step_index=$2',
-      [instanceId, stepIndex]
-    );
-    const approval = apRow.rows[0];
-    if (!approval) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Step not found' }); }
-    if (approval.status !== 'pending') { await client.query('ROLLBACK'); return res.status(400).json({ error: 'Step is not pending' }); }
-
-    // Ensure no earlier pending step exists (must action in order)
-    const earlier = await client.query(
-      `SELECT id FROM workflow_approvals WHERE instance_id=$1 AND step_index < $2 AND status='pending' LIMIT 1`,
-      [instanceId, stepIndex]
-    );
-    if (earlier.rows.length > 0) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'An earlier step is still pending' }); }
-
-    // Authorization check
-    const steps = Array.isArray(instance.workflow_steps) ? instance.workflow_steps : [];
-    const stepDef = steps.find(s => s.order === stepIndex + 1) || steps[stepIndex] || {};
-    const isAdmin = ['superadmin', 'admin'].includes(req.user.role);
-    let authorized = isAdmin; // admins can always act
-    if (!isAdmin) {
-      if (stepDef.approver_type === 'role') {
-        authorized = req.user.role === stepDef.approver_value;
-      } else {
-        authorized = approval.approver_id && Number(approval.approver_id) === Number(req.user.id);
-      }
-    }
-    if (!authorized) { await client.query('ROLLBACK'); return res.status(403).json({ error: 'Not authorized to action this step' }); }
-
-    // Record the action
-    await client.query(
-      `UPDATE workflow_approvals SET status=$1, approver_id=$2, comment=$3, actioned_at=NOW()
-       WHERE instance_id=$4 AND step_index=$5`,
-      [action, req.user.id, comment || null, instanceId, stepIndex]
-    );
-
-    // Advance workflow
-    const advance = await advanceWorkflow(instanceId, client);
-
-    // If workflow complete, propagate to the entity
-    let entityUpdated = false;
-    if (advance.complete) {
-      const entityStatus = advance.outcome === 'approved' ? 'approved' : 'rejected';
-      if (instance.entity_type === 'leave' || instance.entity_type === 'temp_auth') {
-        const reqRow = await client.query(
-          'SELECT r.*, u.email AS user_email, u.name AS user_name FROM requests r JOIN users u ON u.id=r.user_id WHERE r.workflow_instance_id=$1',
-          [instanceId]
-        );
-        const request = reqRow.rows[0];
-        if (request) {
-          const dbStatus = entityStatus === 'approved' ? 'Approved' : 'Rejected';
-          await client.query(
-            'UPDATE requests SET status=$1, reviewed_by=$2, review_comment=$3, reviewed_at=NOW() WHERE id=$4',
-            [dbStatus, req.user.id, comment || null, request.id]
-          );
-          if (dbStatus === 'Rejected') {
-            // Restore leave balance
-            const days = request.days_count || 0;
-            const balCol = request.balance_source === 'recovery' ? 'recovery_balance' : 'leave_balance';
-            await client.query(`UPDATE users SET ${balCol}=${balCol}+$1, used_leave=GREATEST(0,used_leave-$1) WHERE id=$2`, [days, request.user_id]);
-          } else if (dbStatus === 'Approved') {
-            // Sync timesheet entries for approved leave
-            try { await resolveApprovalActivity(client, request.type); } catch (_) {}
-          }
-          entityUpdated = true;
-          // Send notification
-          const icon = dbStatus === 'Approved' ? '✅' : '❌';
-          sendPush(request.user_id, `${icon} Request ${dbStatus}`, `${request.type} · ${request.start_date}`, '/').catch(() => {});
-          sendEmailSafe(request.user_email, `Your ${escapeHtml(request.type)} request has been ${escapeHtml(dbStatus)}`,
-            `<p>Your request has been <strong>${escapeHtml(dbStatus)}</strong>.<br/>${comment ? `Comment: ${escapeHtml(comment)}` : ''}</p>`).catch(() => {});
-        }
-      } else if (instance.entity_type === 'timesheet') {
-        const parts = instance.entity_ref.split('-');
-        const tsUserId = Number(parts[0]);
-        const tsYear = Number(parts[1]);
-        const tsMonth = Number(parts[2]);
-        await client.query(
-          `UPDATE timesheet_status SET status=$1, reviewed_by=$2, review_comment=$3, reviewed_at=NOW()
-           WHERE user_id=$4 AND year=$5 AND month=$6`,
-          [entityStatus, req.user.id, comment || null, tsUserId, tsYear, tsMonth]
-        );
-        entityUpdated = true;
-        const tsUserRow = await client.query('SELECT email, name FROM users WHERE id=$1', [tsUserId]);
-        const tsUser = tsUserRow.rows[0];
-        const icon = entityStatus === 'approved' ? '✅' : '❌';
-        if (tsUser) {
-          sendPush(tsUserId, `${icon} Timesheet ${entityStatus}`, `Your timesheet has been ${entityStatus}`, '/').catch(() => {});
-          sendEmailSafe(tsUser.email, `Your timesheet has been ${escapeHtml(entityStatus)}`,
-            `<p>Your timesheet has been <strong>${escapeHtml(entityStatus)}</strong>.<br/>${comment ? `Comment: ${escapeHtml(comment)}` : ''}</p>`).catch(() => {});
-        }
-      }
-    } else if (advance.nextStep) {
-      // Notify the next step's approver
-      const nextApproval = advance.nextStep;
-      if (nextApproval.approver_id) {
-        const nextUser = await client.query('SELECT email, name FROM users WHERE id=$1', [nextApproval.approver_id]);
-        if (nextUser.rows[0]) {
-          const entityLabel = instance.entity_type === 'timesheet' ? 'timesheet' : 'request';
-          sendPush(nextApproval.approver_id, '📋 Approval needed', `Step: ${nextApproval.step_label || 'Review'}`, '/').catch(() => {});
-          sendEmailSafe(nextUser.rows[0].email, 'Action required: approval step pending',
-            `<p>A ${entityLabel} is awaiting your approval — Step: <strong>${escapeHtml(nextApproval.step_label || 'Review')}</strong>.</p>`).catch(() => {});
-        }
-      }
-    }
-
-    await client.query('COMMIT');
-    logAudit(req.user.id, `workflow_step_${action}`, `Instance ${instanceId} step ${stepIndex} ${action}`, null);
-    res.json({ success: true, workflowStatus: advance.complete ? advance.outcome : 'in_progress', entityUpdated });
-  } catch (err) {
-    await client.query('ROLLBACK');
-    console.error('Workflow approval error:', err);
-    res.status(500).json({ error: err.message });
-  } finally { client.release(); }
 });
 
 // ===== HEALTH CHECK =====

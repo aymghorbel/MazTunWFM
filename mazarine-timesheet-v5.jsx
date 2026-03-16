@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from "recharts";
-import { authAPI, usersAPI, projectsAPI, requestsAPI, timesheetAPI, rolesAPI, payrollAPI, activitiesAPI, rotationAPI, companyAPI, totpAPI, auditAPI, emailAPI, pushAPI, holidaysAPI, workflowsAPI } from "./api";
+import { authAPI, usersAPI, projectsAPI, requestsAPI, timesheetAPI, rolesAPI, payrollAPI, activitiesAPI, rotationAPI, companyAPI, totpAPI, auditAPI, emailAPI, pushAPI, holidaysAPI, companyEntitiesAPI, reportsAPI } from "./api";
 import { getMsalInstance, loginRequest, ssoEnabled } from "./msalConfig";
 
 // ─── Export helpers ────────────────────────────────────────────────────────────
@@ -819,7 +819,14 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
   const [bulkActFilter,setBulkActFilter]=useState("");    // for scope="activity"
 
   const key=tsKey(user.id,year,month);
-  const openProj=projects.filter(p=>p.open&&(user.type==="field"?p.fieldAllowed:p.officeAllowed));
+  const _today=new Date(); _today.setHours(0,0,0,0);
+  const _isAdminUser=['admin','superadmin'].includes(user.role);
+  const openProj=projects.filter(p=>
+    p.open&&
+    (user.type==="field"?p.fieldAllowed:p.officeAllowed)&&
+    (!p.dept||_isAdminUser||p.dept===user.dept)&&
+    (!p.expiryDate||_isAdminUser||new Date(p.expiryDate)>=_today)
+  );
   const tsStatus=tsStatuses[key]||null;
   const status=tsStatus?.status||"draft";
   const isLocked=status==="submitted"||status==="approved";
@@ -1434,87 +1441,6 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
 }
 
 // ─── COMBINED APPROVALS VIEW (Requests + Timesheets) ─────────────────────────
-// ── Workflow sub-components ───────────────────────────────────────────────────
-function WorkflowProgressBar({approvals=[]}){
-  if(!approvals.length) return null;
-  return(
-    <div style={{display:"flex",alignItems:"center",gap:4,marginTop:8,flexWrap:"wrap"}}>
-      {approvals.map((a,i)=>(
-        <span key={i} style={{display:"contents"}}>
-          <div title={`${a.step_label||"Step "+(i+1)}: ${a.status}${a.approver_name?" · "+a.approver_name:""}`}
-            style={{width:26,height:26,borderRadius:"50%",fontSize:11,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,cursor:"default",
-              background:a.status==="approved"?"var(--gr)":a.status==="rejected"?"var(--re)":a.status==="skipped"?"var(--b)":"var(--v)",
-              color:["approved","rejected","pending"].includes(a.status)?"#fff":"var(--t3)",
-              border:a.status==="pending"?"2.5px solid var(--v)":"2.5px solid transparent",
-              opacity:a.status==="skipped"?0.45:1}}>
-            {a.status==="approved"?"✓":a.status==="rejected"?"✗":a.status==="skipped"?"–":i+1}
-          </div>
-          {i<approvals.length-1&&<div style={{flex:1,height:2,background:a.status==="approved"?"var(--gr)":"var(--b)",minWidth:12,maxWidth:28}}/>}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-function WorkflowActionPanel({wfData,currentUser,users,roles,onWfAction}){
-  const [comment,setComment]=useState("");
-  const [confirmAction,setConfirmAction]=useState(null);
-  const isAdmin=hasPerm(roles,currentUser.role,"all");
-  if(!wfData||wfData.instance?.status!=="in_progress") return null;
-  const approvals=wfData.approvals||[];
-  const firstPending=approvals.find(a=>a.status==="pending");
-  if(!firstPending) return null;
-
-  // Determine if current user can act on this step
-  const steps=wfData.instance?.workflow_steps||[];
-  const stepDef=steps.find(s=>s.order===firstPending.step_index+1)||steps[firstPending.step_index]||{};
-  let canAct=isAdmin;
-  if(!isAdmin){
-    if(stepDef.approver_type==="role") canAct=currentUser.role===stepDef.approver_value;
-    else canAct=firstPending.approver_id&&Number(firstPending.approver_id)===Number(currentUser.id);
-  }
-
-  async function doAction(action){
-    if(action==="reject"&&!comment.trim()){toast("Rejection reason required.");return;}
-    try{
-      await workflowsAPI.approveStep(wfData.instance.id,firstPending.step_index,{action,comment});
-      onWfAction();
-      setConfirmAction(null);setComment("");
-      toast(action==="approved"?"✅ Step approved":"❌ Step rejected");
-    }catch(err){toast("Workflow action failed: "+err.message);}
-  }
-
-  if(!canAct){
-    const approverLabel=firstPending.approver_name||(stepDef.approver_type==="role"?"Role: "+stepDef.approver_value:"Awaiting approver");
-    return(
-      <div style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:"var(--t3)",padding:"4px 0"}}>
-        <span>⏳</span><span><strong>{firstPending.step_label||"Step "+(firstPending.step_index+1)}</strong> — {approverLabel}</span>
-        {isAdmin&&<button className="btn bo bxs" style={{fontSize:10}} onClick={()=>setConfirmAction("approved")}>Admin Override</button>}
-      </div>
-    );
-  }
-
-  if(confirmAction){
-    return(
-      <div style={{padding:8,background:"var(--s2)",borderRadius:"var(--rs)",marginTop:4}}>
-        <div style={{fontSize:12,fontWeight:700,marginBottom:6}}>{confirmAction==="approved"?"✅ Approve":"❌ Reject"} — {firstPending.step_label||"Step "+(firstPending.step_index+1)}</div>
-        <textarea className="fi" rows={2} placeholder={confirmAction==="rejected"?"Rejection reason (required)":"Comment (optional)"} value={comment} onChange={e=>setComment(e.target.value)} style={{width:"100%",marginBottom:6,resize:"vertical"}}/>
-        <div style={{display:"flex",gap:6}}>
-          <button className={`btn ${confirmAction==="approved"?"bs":"bd"} bxs`} onClick={()=>doAction(confirmAction)}>{confirmAction==="approved"?"✓ Confirm":"✗ Confirm"}</button>
-          <button className="btn bo bxs" onClick={()=>{setConfirmAction(null);setComment("");}}>Cancel</button>
-        </div>
-      </div>
-    );
-  }
-
-  return(
-    <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:4}}>
-      <button className="btn bs bxs" onClick={()=>setConfirmAction("approved")}>✓ Approve</button>
-      <button className="btn bd bxs" onClick={()=>setConfirmAction("rejected")}>✗ Reject</button>
-    </div>
-  );
-}
-// ── /Workflow sub-components ──────────────────────────────────────────────────
 
 function ApprovalsView({user,requests,setRequests,users,setUsers,roles,tsStatuses,setTsStatuses,timesheetData,setTimesheetData,projects,activities,rotations=[]}) {
   const [tab,setTab]=useState("timesheets");
@@ -1557,14 +1483,6 @@ function ApprovalsView({user,requests,setRequests,users,setUsers,roles,tsStatuse
       setTimesheetData(prev=>{const n={...prev};delete n[item.key];return n;});
     }catch(err){toast('Failed to unlock: '+err.message);}
   }
-
-  // ── Workflow progress state ───────────────────────────────────────────────
-  const [wfInstances,setWfInstances]=useState({});
-  const loadWfInstance=useCallback(async(type,ref)=>{
-    const key=`${type}:${ref}`;
-    try{const data=await workflowsAPI.getInstance(type,ref);setWfInstances(prev=>({...prev,[key]:data}));}catch(_){}
-  },[]);
-  // ── /Workflow progress state ──────────────────────────────────────────────
 
   // Request approvals (existing)
   const isOpsManager=user.role==="operations_manager";
@@ -1703,12 +1621,6 @@ function ApprovalsView({user,requests,setRequests,users,setUsers,roles,tsStatuse
                     const entries=getEntries(item);
                     const ps=getProjSummary(entries);
                     const wdays=entries.length;
-                    const tsRef=`${item.userId}-${item.year}-${item.month+1}`;
-                    const wfKey=`timesheet:${tsRef}`;
-                    const wfData=wfInstances[wfKey];
-                    // Load on first render
-                    if(wfData===undefined&&item.status==="submitted"){loadWfInstance("timesheet",tsRef);}
-                    const hasActiveWf=wfData?.instance?.status==="in_progress";
                     return (
                       <tr key={item.key}>
                         <td>
@@ -1717,7 +1629,6 @@ function ApprovalsView({user,requests,setRequests,users,setUsers,roles,tsStatuse
                             <div>
                               <div style={{fontWeight:700,fontSize:13}}>{item.user.name}</div>
                               <div style={{fontSize:11,color:"var(--t3)"}}>{item.user.dept}</div>
-                              {wfData&&<WorkflowProgressBar approvals={wfData.approvals||[]}/>}
                             </div>
                           </div>
                         </td>
@@ -1739,12 +1650,10 @@ function ApprovalsView({user,requests,setRequests,users,setUsers,roles,tsStatuse
                           <div style={{display:"flex",gap:4,alignItems:"center"}}>
                             <button className="btn bo bxs" onClick={()=>setTsDetailModal(item)} title="View details">▼ Details</button>
                             {item.status==="submitted"&&(
-                              hasActiveWf
-                                ?<WorkflowActionPanel wfData={wfData} currentUser={user} users={users} roles={roles} onWfAction={()=>{loadWfInstance("timesheet",tsRef);}}/>
-                                :<>
-                                  <button className="btn bs bxs" onClick={()=>openReview(item,"approve")}>✓ Approve</button>
-                                  <button className="btn bd bxs" onClick={()=>openReview(item,"reject")}>✗ Reject</button>
-                                </>
+                              <>
+                                <button className="btn bs bxs" onClick={()=>openReview(item,"approve")}>✓ Approve</button>
+                                <button className="btn bd bxs" onClick={()=>openReview(item,"reject")}>✗ Reject</button>
+                              </>
                             )}
                             {item.status==="approved"&&<>{canUnlock&&<button className="btn bo bxs" title="Unlock for editing" onClick={()=>unlockTimesheet(item)}>🔓 Unlock</button>}<span style={{fontSize:11,color:"var(--gr)",fontWeight:600}}>✓ Approved</span></>}
                             {item.status==="rejected"&&<span style={{fontSize:11,color:"var(--re)",fontWeight:600}}>✗ Sent back</span>}
@@ -1770,10 +1679,6 @@ function ApprovalsView({user,requests,setRequests,users,setUsers,roles,tsStatuse
           </div>
           {allTeamReq.length===0&&<div className="empty"><div className="empty-ico">📋</div>No team requests yet</div>}
           {allTeamReq.map(r=>{
-            const wfKey=`leave:${r.id}`;
-            const wfData=wfInstances[wfKey];
-            if(wfData===undefined&&r.status==="Pending"){loadWfInstance("leave",String(r.id));}
-            const hasActiveWf=wfData?.instance?.status==="in_progress";
             return(
             <div className="rc" key={r.id}>
               <div className="ri" style={{background:r.type==="Annual Leave"?"#d1fae5":r.type==="Sick Leave"?"#fee2e2":"#f0f9ff"}}>{icos[r.type]||"📋"}</div>
@@ -1781,14 +1686,11 @@ function ApprovalsView({user,requests,setRequests,users,setUsers,roles,tsStatuse
                 <div style={{fontSize:11,fontWeight:700,color:"var(--v)",marginBottom:2}}>{nm(r.userId)}</div>
                 <div style={{fontWeight:700,fontSize:13}}>{r.type}{r.balanceSource==="recovery"&&<span style={{marginLeft:5,fontSize:10,color:"var(--v)",fontWeight:400}}>🔄 Recovery</span>}</div>
                 <div style={{fontSize:11,color:"var(--t3)",fontFamily:"'JetBrains Mono',monospace"}}>{r.type==="Temporary Authorization"?`${r.start} · ${r.authStartTime||""}→${r.authEndTime||""} (${r.durationHours}h)`:`${r.start}${r.halfDayStart?" "+r.halfDayStart:""}${r.end!==r.start?" → "+r.end+(r.halfDayEnd?" "+r.halfDayEnd:""):""} · ${r.daysCount===0.5?"½ day":r.daysCount+"d"}`}{r.comment?" · "+r.comment:""}</div>
-                {wfData&&<WorkflowProgressBar approvals={wfData.approvals||[]}/>}
               </div>
               <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6}}>
                 <StatusBadge status={r.status}/>
                 {r.status==="Pending"&&(
-                  hasActiveWf
-                    ?<WorkflowActionPanel wfData={wfData} currentUser={user} users={users} roles={roles} onWfAction={()=>{loadWfInstance("leave",String(r.id));}}/>
-                    :<div style={{display:"flex",gap:4}}><button className="btn bs bxs" onClick={()=>approve(r.id)}>✓</button><button className="btn bd bxs" onClick={()=>reject(r.id)}>✗</button></div>
+                  <div style={{display:"flex",gap:4}}><button className="btn bs bxs" onClick={()=>approve(r.id)}>✓</button><button className="btn bd bxs" onClick={()=>reject(r.id)}>✗</button></div>
                 )}
               </div>
             </div>
@@ -2745,9 +2647,11 @@ function AnalyticsReports({user,requests,setRequests,users,projects,roles,tsStat
       <div className="tabs">
         {hasAna&&<div className={`tab ${tab==="analytics"?"active":""}`} onClick={()=>setTab("analytics")}>📊 Analytics</div>}
         {hasRep&&<div className={`tab ${tab==="reports"?"active":""}`} onClick={()=>setTab("reports")}>📈 Reports</div>}
+        {hasRep&&<div className={`tab ${tab==="allocation"?"active":""}`} onClick={()=>setTab("allocation")}>📊 Allocation</div>}
       </div>
       {tab==="analytics"&&hasAna&&<Analytics user={user} requests={requests} users={users} projects={projects} roles={roles} tsStatuses={tsStatuses}/>}
       {tab==="reports"&&hasRep&&<ReportsView users={users} requests={requests} activities={activities} tsStatuses={tsStatuses}/>}
+      {tab==="allocation"&&hasRep&&<AllocationReport/>}
     </div>
   );
 }
@@ -3232,335 +3136,173 @@ function PushSettingsCard() {
 }
 
 // ─── WORKFLOW EDITOR ──────────────────────────────────────────────────────────
-const WF_ENTITY_LABELS={"timesheet":"Timesheet","leave":"Leave Request","temp_auth":"Temp Authorization"};
-const WF_FIELD_LABELS={"days":"Days","leave_type":"Leave Type","request_type":"Request Type","activity":"Activity","staff_type":"Staff Type","department":"Department"};
-const WF_OPS_NUM=["gt","gte","lt","lte","eq"];
-const WF_OPS_STR=["eq","neq","in"];
-const WF_OPS_ACTIVITY=["contains","not_contains","eq"];
-const WF_OP_LABELS={"gt":">","gte":"≥","lt":"<","lte":"≤","eq":"=","neq":"≠","in":"in","contains":"contains","not_contains":"excludes"};
-// Known request types for the request_type / leave_type condition value dropdown
-const WF_REQUEST_TYPES=["Annual Leave","Sick Leave","Unpaid Leave","Recovery Leave","Temporary Authorization"];
 
-function WorkflowEditor({workflow,onSave,onCancel,users,roles,depts,activities=[]}){
-  const isNew=!workflow.id;
-  const [name,setName]=useState(workflow.name||"");
-  const [entityType,setEntityType]=useState(workflow.entity_type||"leave");
-  const [targetDept,setTargetDept]=useState(workflow.target_dept||"");
-  const [targetStaffType,setTargetStaffType]=useState(workflow.target_staff_type||"");
-  const [steps,setSteps]=useState(()=>Array.isArray(workflow.steps)?[...workflow.steps]:[]);
-  const [selId,setSelId]=useState(null);
-  const [dragState,setDragState]=useState(null);
-  const [saving,setSaving]=useState(false);
+// ─── /WORKFLOW EDITOR ─────────────────────────────────────────────────────────
 
-  const selStep=steps.find(s=>s.id===selId)||null;
+// ─── SETTINGS (abbreviated — same as v4 but with roles prop) ─────────────────
+// ─── ENTITIES TAB ─────────────────────────────────────────────────────────────
+function EntitiesTab({entities,setEntities}) {
+  const [entForm,setEntForm]=useState({code:"",name:""});
+  const [entEditing,setEntEditing]=useState(null);
 
-  function addStep(afterIdx){
-    const newS={id:crypto.randomUUID(),order:afterIdx+2,label:"New Step",approver_type:"direct_manager",approver_value:null,conditions:[]};
-    setSteps(prev=>[...prev.slice(0,afterIdx+1),newS,...prev.slice(afterIdx+1).map(s=>({...s,order:s.order+1}))]);
-    setSelId(newS.id);
-  }
-  function removeStep(id){setSteps(prev=>prev.filter(s=>s.id!==id).map((s,i)=>({...s,order:i+1})));if(selId===id)setSelId(null);}
-  function updateStep(id,patch){setSteps(prev=>prev.map(s=>s.id===id?{...s,...patch}:s));}
-
-  function addCond(stepId){
-    updateStep(stepId,{conditions:[...(steps.find(s=>s.id===stepId)?.conditions||[]),{field:"days",operator:"gt",value:""}]});
-  }
-  function updateCond(stepId,idx,patch){
-    const step=steps.find(s=>s.id===stepId);
-    const conds=[...(step?.conditions||[])];
-    conds[idx]={...conds[idx],...patch};
-    updateStep(stepId,{conditions:conds});
-  }
-  function removeCond(stepId,idx){
-    const step=steps.find(s=>s.id===stepId);
-    const conds=[...(step?.conditions||[])];
-    conds.splice(idx,1);
-    updateStep(stepId,{conditions:conds});
-  }
-
-  async function handleSave(){
-    if(!name.trim()){toast("Workflow name is required.");return;}
-    setSaving(true);
+  async function addEntity(){
+    if(!entForm.code||!entForm.name)return;
     try{
-      const sorted=steps.map((s,i)=>({...s,order:i+1}));
-      await onSave({name:name.trim(),entity_type:entityType,target_dept:targetDept||null,target_staff_type:targetStaffType||null,steps:sorted});
-    }catch(err){toast("Save failed: "+err.message);}
-    setSaving(false);
+      const created=await companyEntitiesAPI.create(entForm);
+      setEntities(p=>[...p,created]);
+      setEntForm({code:"",name:""});
+    }catch(err){toast('Failed to create entity: '+err.message);}
   }
 
-  const PlusBtn=({onClick})=>(
-    <button onClick={onClick} style={{width:22,height:22,border:"2px dashed var(--b)",borderRadius:"50%",background:"none",cursor:"pointer",fontSize:14,color:"var(--t3)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}} title="Add step">+</button>
-  );
-
-  return(
-    <div style={{display:"flex",flexDirection:"column",gap:0}}>
-      {/* Header row */}
-      <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap",alignItems:"flex-end"}}>
-        <div className="fg" style={{flex:"1 1 160px"}}>
-          <label className="flbl">Workflow Name</label>
-          <input className="fi" value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Standard Leave Approval"/>
-        </div>
-        <div className="fg" style={{flex:"0 0 150px"}}>
-          <label className="flbl">Applies To</label>
-          <select className="fsel" value={entityType} onChange={e=>setEntityType(e.target.value)}>
-            {Object.entries(WF_ENTITY_LABELS).map(([k,l])=><option key={k} value={k}>{l}</option>)}
-          </select>
-        </div>
-        <div className="fg" style={{flex:"0 0 150px"}}>
-          <label className="flbl">Department</label>
-          <select className="fsel" value={targetDept} onChange={e=>setTargetDept(e.target.value)}>
-            <option value="">All Departments</option>
-            {depts.map(d=><option key={d} value={d}>{d}</option>)}
-          </select>
-        </div>
-        <div className="fg" style={{flex:"0 0 130px"}}>
-          <label className="flbl">Staff Type</label>
-          <select className="fsel" value={targetStaffType} onChange={e=>setTargetStaffType(e.target.value)}>
-            <option value="">All Types</option>
-            <option value="office">Office</option>
-            <option value="field">Field</option>
-          </select>
-        </div>
-      </div>
-
-      {/* Pipeline + Side panel */}
-      <div style={{display:"flex",gap:14,alignItems:"flex-start"}}>
-        {/* Pipeline rail */}
-        <div style={{flex:1,overflowX:"auto",paddingBottom:8}}>
-          <div style={{display:"flex",alignItems:"center",gap:6,minWidth:"max-content",padding:"4px 2px"}}>
-            <PlusBtn onClick={()=>addStep(-1)}/>
-            {steps.length===0&&<div style={{fontSize:12,color:"var(--t3)",padding:"0 8px"}}>No steps yet — click + to add</div>}
-            {steps.map((step,idx)=>{
-              const isDragging=dragState?.draggingId===step.id;
-              const isOver=dragState?.overIndex===idx;
-              return(
-                <span key={step.id} style={{display:"contents"}}>
-                  <div
-                    draggable
-                    onDragStart={()=>setDragState({draggingId:step.id,overIndex:null})}
-                    onDragOver={e=>{e.preventDefault();setDragState(p=>({...p,overIndex:idx}));}}
-                    onDrop={()=>{
-                      if(dragState?.overIndex==null)return;
-                      const arr=[...steps];
-                      const from=arr.findIndex(s=>s.id===dragState.draggingId);
-                      const[moved]=arr.splice(from,1);arr.splice(dragState.overIndex,0,moved);
-                      setSteps(arr.map((s,i)=>({...s,order:i+1})));setDragState(null);
-                    }}
-                    onDragEnd={()=>setDragState(null)}
-                    onClick={()=>setSelId(selId===step.id?null:step.id)}
-                    style={{
-                      minWidth:130,maxWidth:160,padding:10,borderRadius:"var(--rs)",cursor:"grab",userSelect:"none",
-                      border:`2px solid ${selId===step.id?"var(--v)":isOver?"var(--am)":"var(--b)"}`,
-                      background:selId===step.id?"var(--s2)":"var(--surface)",
-                      opacity:isDragging?0.4:1,transition:"border-color .15s"
-                    }}>
-                    <div style={{fontSize:10,color:"var(--t3)",fontWeight:700,marginBottom:2}}>STEP {step.order}</div>
-                    <div style={{fontWeight:700,fontSize:12,marginBottom:4,wordBreak:"break-word"}}>{step.label||"Untitled"}</div>
-                    <div style={{marginBottom:4}}>
-                      {step.approver_type==="direct_manager"&&<span className="badge bgr2" style={{fontSize:9}}>👤 Manager</span>}
-                      {step.approver_type==="role"&&<span className="badge bv" style={{fontSize:9}}>🎭 {step.approver_value||"role"}</span>}
-                      {step.approver_type==="user"&&<span className="badge bsk" style={{fontSize:9}}>👤 {users.find(u=>u.id===Number(step.approver_value))?.name||"User"}</span>}
-                    </div>
-                    {(step.conditions||[]).length>0&&<div style={{fontSize:9,color:"var(--am)",fontWeight:600}}>{step.conditions.length} condition{step.conditions.length>1?"s":""}</div>}
-                    <button onClick={e=>{e.stopPropagation();removeStep(step.id);}} style={{marginTop:4,fontSize:10,color:"var(--re)",background:"none",border:"none",cursor:"pointer",padding:0}}>✕ Remove</button>
-                  </div>
-                  <PlusBtn onClick={()=>addStep(idx)}/>
-                </span>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Side panel */}
-        {selStep&&(
-          <div style={{width:260,flexShrink:0,border:"1px solid var(--b)",borderRadius:"var(--rs)",padding:12,background:"var(--surface)"}}>
-            <div style={{fontWeight:700,fontSize:13,marginBottom:10}}>Step Config</div>
-            <div className="fg" style={{marginBottom:8}}>
-              <label className="flbl">Label</label>
-              <input className="fi" value={selStep.label||""} onChange={e=>updateStep(selStep.id,{label:e.target.value})}/>
-            </div>
-            <div className="fg" style={{marginBottom:8}}>
-              <label className="flbl">Approver Type</label>
-              <select className="fsel" value={selStep.approver_type||"direct_manager"} onChange={e=>updateStep(selStep.id,{approver_type:e.target.value,approver_value:null})}>
-                <option value="direct_manager">Direct Manager</option>
-                <option value="role">Role</option>
-                <option value="user">Specific User</option>
-              </select>
-            </div>
-            {selStep.approver_type==="role"&&(
-              <div className="fg" style={{marginBottom:8}}>
-                <label className="flbl">Role</label>
-                <select className="fsel" value={selStep.approver_value||""} onChange={e=>updateStep(selStep.id,{approver_value:e.target.value})}>
-                  <option value="">— Select —</option>
-                  {roles.map(r=><option key={r.key} value={r.key}>{r.label}</option>)}
-                </select>
-              </div>
-            )}
-            {selStep.approver_type==="user"&&(
-              <div className="fg" style={{marginBottom:8}}>
-                <label className="flbl">User</label>
-                <select className="fsel" value={selStep.approver_value||""} onChange={e=>updateStep(selStep.id,{approver_value:Number(e.target.value)||null})}>
-                  <option value="">— Select —</option>
-                  {users.filter(u=>u.active!==false).map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
-                </select>
-              </div>
-            )}
-            {/* Conditions */}
-            <div style={{marginTop:4}}>
-              <div style={{fontSize:11,fontWeight:700,color:"var(--t3)",marginBottom:6,textTransform:"uppercase",letterSpacing:".06em"}}>Conditions (AND)</div>
-              {(selStep.conditions||[]).length===0&&<div style={{fontSize:11,color:"var(--t3)",marginBottom:6}}>No conditions — step always runs</div>}
-              {(selStep.conditions||[]).map((cond,ci)=>{
-                const isNum=cond.field==="days";
-                const isActivity=cond.field==="activity";
-                const isReqType=cond.field==="request_type"||cond.field==="leave_type";
-                const ops=isNum?WF_OPS_NUM:isActivity?WF_OPS_ACTIVITY:WF_OPS_STR;
-                // Determine default operator when field changes
-                const defaultOp=isNum?"gt":isActivity?"contains":"eq";
-                // Smart value widget
-                let valueWidget;
-                if(isActivity){
-                  valueWidget=<select className="fsel" style={{flex:1,fontSize:11,padding:"3px 4px"}} value={cond.value||""} onChange={e=>updateCond(selStep.id,ci,{value:e.target.value})}>
-                    <option value="">— Select activity —</option>
-                    {activities.map(a=><option key={a.id??a.name} value={a.name}>{a.name}</option>)}
-                  </select>;
-                }else if(isReqType){
-                  valueWidget=<select className="fsel" style={{flex:1,fontSize:11,padding:"3px 4px"}} value={cond.value||""} onChange={e=>updateCond(selStep.id,ci,{value:e.target.value})}>
-                    <option value="">— Select type —</option>
-                    {WF_REQUEST_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
-                  </select>;
-                }else if(cond.field==="staff_type"){
-                  valueWidget=<select className="fsel" style={{flex:1,fontSize:11,padding:"3px 4px"}} value={cond.value||""} onChange={e=>updateCond(selStep.id,ci,{value:e.target.value})}>
-                    <option value="">— Select —</option>
-                    <option value="field">Field</option>
-                    <option value="office">Office</option>
-                  </select>;
-                }else if(cond.field==="department"){
-                  valueWidget=<select className="fsel" style={{flex:1,fontSize:11,padding:"3px 4px"}} value={cond.value||""} onChange={e=>updateCond(selStep.id,ci,{value:e.target.value})}>
-                    <option value="">— Select dept —</option>
-                    {(depts||[]).map(d=><option key={d} value={d}>{d}</option>)}
-                  </select>;
-                }else{
-                  valueWidget=<input className="fi" style={{flex:1,fontSize:11,padding:"3px 5px"}} placeholder="value" value={cond.value||""} onChange={e=>updateCond(selStep.id,ci,{value:isNum?Number(e.target.value)||e.target.value:e.target.value})}/>;
-                }
-                return(
-                  <div key={ci} style={{display:"flex",gap:4,alignItems:"center",marginBottom:5,flexWrap:"wrap"}}>
-                    <select className="fsel" style={{flex:"0 0 100px",fontSize:11,padding:"3px 4px"}} value={cond.field} onChange={e=>updateCond(selStep.id,ci,{field:e.target.value,operator:defaultOp,value:""})}>
-                      {Object.entries(WF_FIELD_LABELS).map(([k,l])=><option key={k} value={k}>{l}</option>)}
-                    </select>
-                    <select className="fsel" style={{flex:"0 0 66px",fontSize:11,padding:"3px 4px"}} value={cond.operator} onChange={e=>updateCond(selStep.id,ci,{operator:e.target.value})}>
-                      {ops.map(op=><option key={op} value={op}>{WF_OP_LABELS[op]}</option>)}
-                    </select>
-                    {valueWidget}
-                    <button onClick={()=>removeCond(selStep.id,ci)} style={{background:"none",border:"none",cursor:"pointer",color:"var(--re)",fontSize:12,padding:0,flexShrink:0}}>✕</button>
-                  </div>
-                );
-              })}
-              <button className="btn bo bxs" style={{fontSize:11,marginTop:2}} onClick={()=>addCond(selStep.id)}>+ Add Condition</button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Footer */}
-      <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16,paddingTop:12,borderTop:"1px solid var(--b)"}}>
-        <button className="btn bo bsm" onClick={onCancel}>Cancel</button>
-        <button className="btn bp bsm" onClick={handleSave} disabled={saving}>{saving?"Saving…":(isNew?"Create Workflow":"Save Changes")}</button>
-      </div>
-    </div>
-  );
-}
-
-function WorkflowsTab({workflows,setWorkflows,users,roles,depts,activities=[]}){
-  const [editing,setEditing]=useState(null); // null=list, object=editor
-  const [saving,setSaving]=useState(false);
-
-  async function handleSave(data){
-    setSaving(true);
+  async function saveEntity(id){
     try{
-      let updated;
-      if(editing.id){
-        updated=await workflowsAPI.update(editing.id,data);
-        setWorkflows(prev=>prev.map(w=>w.id===editing.id?updated:w));
-      }else{
-        updated=await workflowsAPI.create(data);
-        setWorkflows(prev=>[...prev,updated]);
-      }
-      setEditing(null);
-      toast("✅ Workflow saved");
-    }catch(err){toast("Save failed: "+err.message);}
-    setSaving(false);
+      const updated=await companyEntitiesAPI.update(id,entEditing);
+      setEntities(p=>p.map(x=>x.id===id?updated:x));
+      setEntEditing(null);
+    }catch(err){toast('Failed to save entity: '+err.message);}
   }
 
-  async function toggleActive(wf){
+  async function deleteEntity(id){
+    if(!window.confirm("Delete this entity?"))return;
     try{
-      const updated=await workflowsAPI.update(wf.id,{is_active:!wf.is_active});
-      setWorkflows(prev=>prev.map(w=>w.id===wf.id?{...w,is_active:updated.is_active}:w));
-    }catch(err){toast("Update failed: "+err.message);}
+      await companyEntitiesAPI.delete(id);
+      setEntities(p=>p.filter(x=>x.id!==id));
+    }catch(err){toast(err.message||'Failed to delete entity');}
   }
 
-  async function handleDelete(wf){
-    if(!window.confirm(`Delete workflow "${wf.name}"?`)) return;
+  async function toggleActive(ent){
     try{
-      await workflowsAPI.delete(wf.id);
-      setWorkflows(prev=>prev.filter(w=>w.id!==wf.id));
-      toast("Workflow deleted");
-    }catch(err){toast("Delete failed: "+err.message);}
+      const updated=await companyEntitiesAPI.update(ent.id,{...ent,active:!ent.active});
+      setEntities(p=>p.map(x=>x.id===ent.id?updated:x));
+    }catch(err){toast('Failed: '+err.message);}
   }
-
-  if(editing!==null) return(
-    <div>
-      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
-        <button className="btn bo bsm" onClick={()=>setEditing(null)}>← Back</button>
-        <div style={{fontWeight:700,fontSize:15}}>{editing.id?"Edit Workflow":"New Workflow"}</div>
-      </div>
-      <WorkflowEditor workflow={editing} onSave={handleSave} onCancel={()=>setEditing(null)} users={users} roles={roles} depts={depts} activities={activities}/>
-    </div>
-  );
 
   return(
     <div>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-        <div>
-          <div style={{fontWeight:700,fontSize:15}}>Approval Workflows</div>
-          <div style={{fontSize:12,color:"var(--t3)"}}>Configure multi-step conditional approval pipelines</div>
-        </div>
-        <button className="btn bp bsm" onClick={()=>setEditing({name:"",entity_type:"leave",target_dept:null,target_staff_type:null,is_active:true,steps:[]})}>+ New Workflow</button>
-      </div>
-      {workflows.length===0&&<div className="empty"><div className="empty-ico">⚙</div>No workflows configured yet</div>}
-      {workflows.length>0&&(
+      <div style={{fontWeight:700,fontSize:15,marginBottom:12}}>Company Entities</div>
+      <div className="tw" style={{marginBottom:16}}>
         <table className="tbl">
-          <thead><tr><th>Name</th><th>Applies To</th><th>Target</th><th>Steps</th><th>Active</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Code</th><th>Name</th><th>Active</th><th>Actions</th></tr></thead>
           <tbody>
-            {workflows.map(wf=>(
-              <tr key={wf.id}>
-                <td><div style={{fontWeight:700,fontSize:13}}>{wf.name}</div>{wf.creator_name&&<div style={{fontSize:11,color:"var(--t3)"}}>by {wf.creator_name}</div>}</td>
-                <td><span className="badge bgr2" style={{fontSize:10}}>{WF_ENTITY_LABELS[wf.entity_type]||wf.entity_type}</span></td>
-                <td style={{fontSize:11,color:"var(--t3)"}}>{wf.target_dept||"All depts"}{wf.target_staff_type?" · "+wf.target_staff_type:""}</td>
-                <td style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700}}>{(Array.isArray(wf.steps)?wf.steps:[]).length}</td>
-                <td>
-                  <label className="sw" title={wf.is_active?"Active — click to deactivate":"Inactive — click to activate"}>
-                    <input type="checkbox" checked={!!wf.is_active} onChange={()=>toggleActive(wf)}/>
-                    <span className="sldr"/>
-                  </label>
-                </td>
-                <td>
-                  <div style={{display:"flex",gap:4}}>
-                    <button className="btn bo bxs" onClick={()=>setEditing(wf)}>✎ Edit</button>
-                    <button className="btn bd bxs" onClick={()=>handleDelete(wf)}>✕ Delete</button>
-                  </div>
-                </td>
+            {entities.map(ent=>(
+              <tr key={ent.id}>
+                {entEditing&&entEditing.id===ent.id?(
+                  <>
+                    <td><input className="fi" style={{width:70}} value={entEditing.code} onChange={e=>setEntEditing({...entEditing,code:e.target.value})}/></td>
+                    <td><input className="fi" style={{width:200}} value={entEditing.name} onChange={e=>setEntEditing({...entEditing,name:e.target.value})}/></td>
+                    <td><label className="sw"><input type="checkbox" checked={entEditing.active!==false} onChange={e=>setEntEditing({...entEditing,active:e.target.checked})}/><span className="sldr"/></label></td>
+                    <td><div style={{display:"flex",gap:4}}><button className="btn bp bxs" onClick={()=>saveEntity(ent.id)}>💾</button><button className="btn bo bxs" onClick={()=>setEntEditing(null)}>✕</button></div></td>
+                  </>
+                ):(
+                  <>
+                    <td><span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700}}>{ent.code}</span></td>
+                    <td>{ent.name}</td>
+                    <td><label className="sw"><input type="checkbox" checked={ent.active!==false} onChange={()=>toggleActive(ent)}/><span className="sldr"/></label></td>
+                    <td><div style={{display:"flex",gap:4}}><button className="btn bg2 bxs" onClick={()=>setEntEditing({...ent})}>✏️</button><button className="btn bg2 bxs" onClick={()=>deleteEntity(ent.id)}>🗑</button></div></td>
+                  </>
+                )}
               </tr>
             ))}
           </tbody>
         </table>
-      )}
+      </div>
+      <div style={{display:"flex",gap:8,alignItems:"flex-end",flexWrap:"wrap"}}>
+        <div style={{display:"flex",flexDirection:"column",gap:4}}>
+          <label style={{fontSize:12,color:"var(--t3)"}}>Code</label>
+          <input className="fi" style={{width:80}} placeholder="e.g. 26" value={entForm.code} onChange={e=>setEntForm({...entForm,code:e.target.value})}/>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:4}}>
+          <label style={{fontSize:12,color:"var(--t3)"}}>Name</label>
+          <input className="fi" style={{width:200}} placeholder="Entity name" value={entForm.name} onChange={e=>setEntForm({...entForm,name:e.target.value})}/>
+        </div>
+        <button className="btn bp bsm" onClick={addEntity}>+ Add Entity</button>
+      </div>
     </div>
   );
 }
-// ─── /WORKFLOW EDITOR ─────────────────────────────────────────────────────────
 
-// ─── SETTINGS (abbreviated — same as v4 but with roles prop) ─────────────────
-function Settings({user,users,setUsers,projects,setProjects,roles,setRoles,activities,setActivities,holidays,setHolidays,onResetPwd,workflows,setWorkflows}) {
+// ─── ALLOCATION REPORT ────────────────────────────────────────────────────────
+function AllocationReport() {
+  const now=new Date();
+  const [year,setYear]=useState(now.getFullYear());
+  const [month,setMonth]=useState(now.getMonth()+1);
+  const [data,setData]=useState([]);
+  const [loading,setLoading]=useState(false);
+  const MN=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+  useEffect(()=>{
+    setLoading(true);
+    reportsAPI.allocation(year,month).then(rows=>setData(rows||[])).catch(()=>setData([])).finally(()=>setLoading(false));
+  },[year,month]);
+
+  const depts=[...new Set(data.map(r=>r.dept))].sort();
+  const projects=[...new Map(data.map(r=>[r.project_id,{id:r.project_id,code:r.project_code,name:r.project_name,type:r.project_type,entityCode:r.entity_code,entityName:r.entity_name}])).values()];
+
+  function getCell(projId,dept){
+    const row=data.find(r=>r.project_id===projId&&r.dept===dept);
+    return row?Number(row.alloc_pct):null;
+  }
+
+  function cellStyle(val){
+    if(val===null)return{};
+    if(val>=20)return{background:"#dcfce7",color:"#166534",fontWeight:700};
+    if(val>=10)return{background:"#fef9c3",color:"#854d0e",fontWeight:600};
+    if(val>0)return{background:"#dbeafe",color:"#1e40af"};
+    return{};
+  }
+
+  return(
+    <div>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16,flexWrap:"wrap"}}>
+        <span style={{fontWeight:700,fontSize:15}}>📊 Allocation Report</span>
+        <button className="btn bo bsm" onClick={()=>{if(month===1){setMonth(12);setYear(y=>y-1);}else setMonth(m=>m-1);}}>‹</button>
+        <span style={{fontWeight:700,minWidth:90,textAlign:"center"}}>{MN[month-1]} {year}</span>
+        <button className="btn bo bsm" onClick={()=>{if(month===12){setMonth(1);setYear(y=>y+1);}else setMonth(m=>m+1);}}>›</button>
+        {loading&&<span style={{fontSize:12,color:"var(--t3)"}}>Loading…</span>}
+      </div>
+      {data.length===0&&!loading&&<div style={{color:"var(--t3)",fontSize:13,padding:"20px 0"}}>No submitted/approved timesheet allocations for this period.</div>}
+      {data.length>0&&(
+        <div className="tw">
+          <table className="tbl" style={{fontSize:12}}>
+            <thead>
+              <tr>
+                <th>Project</th>
+                <th>Entity</th>
+                <th>Type</th>
+                {depts.map(d=><th key={d} style={{minWidth:80}}>{d}</th>)}
+                <th>Total %</th>
+              </tr>
+            </thead>
+            <tbody>
+              {projects.map(p=>{
+                const rowTotal=depts.reduce((s,d)=>{const v=getCell(p.id,d);return s+(v||0);},0);
+                return(
+                  <tr key={p.id}>
+                    <td><span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700}}>{p.code}</span><div style={{fontSize:11,color:"var(--t3)"}}>{p.name}</div></td>
+                    <td>{p.entityCode?<span className="badge bgr2" style={{fontSize:10}}>{p.entityCode}</span>:<span style={{color:"var(--t3)"}}>—</span>}</td>
+                    <td><span className="badge bgr2" style={{fontSize:10}}>{p.type}</span></td>
+                    {depts.map(d=>{
+                      const val=getCell(p.id,d);
+                      return<td key={d} style={{textAlign:"center",...cellStyle(val)}}>{val!==null?`${val}%`:"—"}</td>;
+                    })}
+                    <td style={{textAlign:"center",fontWeight:700}}>{rowTotal>0?`${rowTotal.toFixed(1)}%`:"—"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div style={{marginTop:10,fontSize:11,color:"var(--t3)"}}>
+        <span style={{display:"inline-block",width:12,height:12,background:"#dcfce7",border:"1px solid #86efac",marginRight:4,verticalAlign:"middle"}}/>≥20% &nbsp;
+        <span style={{display:"inline-block",width:12,height:12,background:"#fef9c3",border:"1px solid #fde047",marginRight:4,verticalAlign:"middle"}}/>10–19% &nbsp;
+        <span style={{display:"inline-block",width:12,height:12,background:"#dbeafe",border:"1px solid #93c5fd",marginRight:4,verticalAlign:"middle"}}/>1–9%
+      </div>
+    </div>
+  );
+}
+
+function Settings({user,users,setUsers,projects,setProjects,roles,setRoles,activities,setActivities,holidays,setHolidays,entities,setEntities,onResetPwd}) {
   const [tab,setTab]=useState("users");
   const [editUser,setEditUser]=useState(null);
   const [showAdd,setShowAdd]=useState(false);
@@ -3569,24 +3311,17 @@ function Settings({user,users,setUsers,projects,setProjects,roles,setRoles,activ
   const [editProj,setEditProj]=useState(null);
   const [showAddProj,setShowAddProj]=useState(false);
   const [pFilter,setPFilter]=useState("all");
-  const BNP={code:"",name:"",type:"OPEX",dept:"",open:true,fieldAllowed:true,officeAllowed:true,color:"#7c3aed"};
+  const BNP={code:"",name:"",type:"CAPEX",dept:"",open:true,fieldAllowed:true,officeAllowed:true,color:"#7c3aed",expiryDate:null,entityId:null};
   const [newProj,setNewProj]=useState(BNP);
   const [editRole,setEditRole]=useState(null);
   const [showAddRole,setShowAddRole]=useState(false);
   const BNR={key:"",label:"",color:"#64748b",permissions:[]};
   const [newRole,setNewRole]=useState(BNR);
   const mgrs=users.filter(u=>u.role==="manager"||u.role==="admin");
-  const PTYPES=["OPEX","OVERHEAD","INTERNAL"];
+  const PTYPES=["CAPEX","OPEX","EXPLORATION"];
 
-  // ── Workflow state (load on mount if not provided) ──
   const isAd=hasPerm(roles,user.role,"all");
   const depts=useMemo(()=>[...new Set(users.map(u=>u.dept).filter(Boolean))].sort(),[users]);
-  useEffect(()=>{
-    if(!isAd||!setWorkflows) return;
-    if((workflows||[]).length===0){
-      workflowsAPI.getAll().then(setWorkflows).catch(()=>{});
-    }
-  },[isAd]);// eslint-disable-line
 
   // ── CSV Import state ──
   const [importModal,setImportModal]=useState(null); // null | "users" | "projects"
@@ -3652,7 +3387,7 @@ function Settings({user,users,setUsers,projects,setProjects,roles,setRoles,activ
       if(result.created>0) {
         // Refresh the relevant list
         if(importModal==='users') usersAPI.getAll().then(setUsers).catch(()=>{});
-        else projectsAPI.getAll().then(d=>setProjects(d.map(p=>({...p,fieldAllowed:p.field_allowed,officeAllowed:p.office_allowed})))).catch(()=>{});
+        else projectsAPI.getAll().then(d=>setProjects(d.map(p=>({...p,fieldAllowed:p.field_allowed,officeAllowed:p.office_allowed,expiryDate:p.expiry_date||null})))).catch(()=>{});
       }
     } catch(e) { setImportResult({error:e.message}); }
     finally { setImportLoading(false); }
@@ -3736,7 +3471,7 @@ function Settings({user,users,setUsers,projects,setProjects,roles,setRoles,activ
     if(!newProj.code||!newProj.name)return;
     try{
       const created=await projectsAPI.create(newProj);
-      setProjects(p=>[...p,{id:created.id,code:created.code,name:created.name,type:created.type,dept:created.dept,open:created.open,fieldAllowed:created.field_allowed,officeAllowed:created.office_allowed,color:created.color}]);
+      setProjects(p=>[...p,{id:created.id,code:created.code,name:created.name,type:created.type,dept:created.dept,open:created.open,fieldAllowed:created.field_allowed,officeAllowed:created.office_allowed,color:created.color,expiryDate:created.expiry_date||null,entityId:created.entity_id||null,entityCode:created.entity_code||null,entityName:created.entity_name||null}]);
       setShowAddProj(false);setNewProj(BNP);
     }catch(err){toast('Failed to create project: '+err.message);}
   }
@@ -3825,14 +3560,15 @@ function Settings({user,users,setUsers,projects,setProjects,roles,setRoles,activ
   const CP=({value,onChange})=>(<div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:4}}>{COLORS.map(c=><div key={c} className={`color-sw${value===c?" sel":""}`} style={{background:c}} onClick={()=>onChange(c)}/>)}</div>);
   return (
     <div>
-      <div className="tabs">{[["users","👥 Users & Roles"],["projects","📁 Projects"],["activities","🎯 Activities"],["holidays","📅 Holidays"],["rbac","🔐 Permissions & Roles"],["workflows","⚙ Workflows"],["system","⚙️ System"]].map(([k,l])=>(<div key={k} className={`tab ${tab===k?"active":""}`} onClick={()=>setTab(k)}>{l}</div>))}</div>
+      <div className="tabs">{[["users","👥 Users & Roles"],["projects","📁 Projects"],["entities","🏢 Entities"],["activities","🎯 Activities"],["holidays","📅 Holidays"],["rbac","🔐 Permissions & Roles"],["system","⚙️ System"]].map(([k,l])=>(<div key={k} className={`tab ${tab===k?"active":""}`} onClick={()=>setTab(k)}>{l}</div>))}</div>
       {tab==="users"&&(<div><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}><div><div style={{fontWeight:700,fontSize:15}}>User Management</div><div style={{fontSize:12,color:"var(--t3)"}}>{users.filter(u=>u.active).length} active</div></div><div style={{display:"flex",gap:8}}><button className="btn bg2 bsm" onClick={()=>downloadTemplate('users')}>⬇ Template</button><label className="btn bg2 bsm" style={{cursor:"pointer",margin:0}}><input type="file" accept=".csv,.xlsx" style={{display:"none"}} onChange={e=>{handleImportFile(e,'users');e.target.value='';}} />📥 Import CSV</label><button className="btn bp bsm" onClick={()=>setShowAdd(true)}>+ Add User</button></div></div>
         <div className="tw"><table className="tbl"><thead><tr><th>User</th><th>Role</th><th>Type</th><th>Dept</th><th>Manager</th><th>Balances</th><th>Active</th><th>2FA</th><th>Actions</th></tr></thead><tbody>{users.map(u=>(<tr key={u.id}><td><div style={{display:"flex",alignItems:"center",gap:9}}><div className="av" style={{background:aColor(u.id)}}>{initials(u.name)}</div><div><div style={{fontWeight:700,fontSize:13}}>{u.name}</div><div style={{fontSize:11,color:"var(--t3)",fontFamily:"'JetBrains Mono',monospace"}}>{u.email}</div></div></div></td><td><select className="isel2" value={u.role} onChange={e=>setUsers(p=>p.map(x=>x.id===u.id?{...x,role:e.target.value}:x))}>{Object.entries(roles).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select></td><td><TypeBadge type={u.type}/></td><td style={{fontSize:12,color:"var(--t2)"}}>{u.dept}</td><td style={{fontSize:12,color:"var(--t3)"}}>{users.find(x=>x.id===u.manager)?.name||"—"}</td><td><div style={{display:"flex",flexDirection:"column",gap:3}}><div style={{display:"flex",alignItems:"center",gap:6}}><div className="prog" style={{width:48}}><div className="prog-f" style={{width:`${Math.round((u.usedLeave/u.leaveBalance)*100)}%`,background:u.usedLeave/u.leaveBalance>0.8?"var(--re)":"var(--gr)"}}/></div><span style={{fontSize:11,fontFamily:"'JetBrains Mono',monospace",color:"var(--t3)"}} title="Annual Leave remaining">{u.leaveBalance-u.usedLeave}d AL</span></div>{(u.recoveryBalance||0)>0&&<span style={{fontSize:10,color:"var(--v)",fontFamily:"'JetBrains Mono',monospace"}}>🔄 {u.recoveryBalance}d</span>}</div></td><td><label className="sw"><input type="checkbox" checked={u.active} onChange={()=>toggleU(u.id)}/><span className="sldr"/></label></td><td>{u.totpEnabled?<span className="badge bgr" style={{fontSize:10}}>🔒 On</span>:<span className="badge bgr2" style={{fontSize:10}}>Off</span>}</td><td><div style={{display:"flex",gap:4}}><button className="btn bg2 bxs" onClick={()=>setEditUser({...u})}>✏️</button>{onResetPwd&&<button className="btn bg2 bxs" title="Reset password" onClick={()=>onResetPwd(u.id)}>🔑</button>}{u.totpEnabled&&<button className="btn bg2 bxs" title="Reset 2FA" onClick={()=>resetMFA(u.id)}>🔓</button>}<button className="btn bg2 bxs" onClick={()=>delUser(u.id)}>🗑</button></div></td></tr>))}</tbody></table></div>
       </div>)}
       {tab==="projects"&&(<div><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}><div><div style={{fontWeight:700,fontSize:15}}>Project Management</div><div style={{fontSize:12,color:"var(--t3)"}}>{projects.filter(p=>p.open).length} open · {projects.filter(p=>!p.open).length} closed</div></div><div style={{display:"flex",gap:8,alignItems:"center"}}><div className="tabs" style={{margin:0}}>{[["all","All"],["open","Open"],["closed","Closed"]].map(([k,l])=><div key={k} className={`tab ${pFilter===k?"active":""}`} onClick={()=>setPFilter(k)} style={{padding:"5px 11px"}}>{l}</div>)}</div><button className="btn bg2 bsm" onClick={()=>downloadTemplate('projects')}>⬇ Template</button><label className="btn bg2 bsm" style={{cursor:"pointer",margin:0}}><input type="file" accept=".csv,.xlsx" style={{display:"none"}} onChange={e=>{handleImportFile(e,'projects');e.target.value='';}} />📥 Import CSV</label><button className="btn bp bsm" onClick={()=>setShowAddProj(true)}>+ Add Project</button></div></div>
-        <div className="tw" style={{marginBottom:14}}><table className="tbl"><thead><tr><th>Code</th><th>Name</th><th>Type</th><th>Dept</th><th>Field</th><th>Office</th><th>Open</th><th>Actions</th></tr></thead><tbody>{filtProj.map(p=>(<tr key={p.id}><td><div style={{display:"flex",alignItems:"center",gap:7}}><div className="dot" style={{background:p.color}}/><span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:12}}>{p.code}</span></div></td><td style={{fontWeight:600}}>{p.name}</td><td><span className="badge bgr2" style={{fontSize:10}}>{p.type}</span></td><td style={{fontSize:12,color:"var(--t2)"}}>{p.dept}</td><td><label className="sw" style={{transform:"scale(.82)"}}><input type="checkbox" checked={p.fieldAllowed} onChange={()=>setProjects(pp=>pp.map(x=>x.id===p.id?{...x,fieldAllowed:!x.fieldAllowed}:x))}/><span className="sldr"/></label></td><td><label className="sw" style={{transform:"scale(.82)"}}><input type="checkbox" checked={p.officeAllowed} onChange={()=>setProjects(pp=>pp.map(x=>x.id===p.id?{...x,officeAllowed:!x.officeAllowed}:x))}/><span className="sldr"/></label></td><td><label className="sw" style={{transform:"scale(.82)"}}><input type="checkbox" checked={p.open} onChange={()=>togglePO(p.id)}/><span className="sldr"/></label></td><td><div style={{display:"flex",gap:4}}><button className="btn bg2 bxs" onClick={()=>setEditProj({...p})}>✏️</button><button className="btn bg2 bxs" onClick={()=>delProj(p.id)}>🗑</button></div></td></tr>))}</tbody></table></div>
+        <div className="tw" style={{marginBottom:14}}><table className="tbl"><thead><tr><th>Code</th><th>Name</th><th>Type</th><th>Entity</th><th>Dept</th><th>Field</th><th>Office</th><th>Open</th><th>Actions</th></tr></thead><tbody>{filtProj.map(p=>(<tr key={p.id}><td><div style={{display:"flex",alignItems:"center",gap:7}}><div className="dot" style={{background:p.color}}/><span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:12}}>{p.code}</span></div></td><td style={{fontWeight:600}}>{p.name}{p.expiryDate&&new Date(p.expiryDate)<new Date()&&<span className="badge" style={{background:"#fee2e2",color:"#dc2626",fontSize:10,marginLeft:4}}>Expired</span>}</td><td><span className="badge bgr2" style={{fontSize:10}}>{p.type}</span></td><td>{p.entityCode?<span className="badge bgr2" style={{fontSize:10}}>{p.entityCode}</span>:<span style={{color:"var(--t3)",fontSize:11}}>—</span>}</td><td style={{fontSize:12,color:"var(--t2)"}}>{p.dept}</td><td><label className="sw" style={{transform:"scale(.82)"}}><input type="checkbox" checked={p.fieldAllowed} onChange={()=>setProjects(pp=>pp.map(x=>x.id===p.id?{...x,fieldAllowed:!x.fieldAllowed}:x))}/><span className="sldr"/></label></td><td><label className="sw" style={{transform:"scale(.82)"}}><input type="checkbox" checked={p.officeAllowed} onChange={()=>setProjects(pp=>pp.map(x=>x.id===p.id?{...x,officeAllowed:!x.officeAllowed}:x))}/><span className="sldr"/></label></td><td><label className="sw" style={{transform:"scale(.82)"}}><input type="checkbox" checked={p.open} onChange={()=>togglePO(p.id)}/><span className="sldr"/></label></td><td><div style={{display:"flex",gap:4}}><button className="btn bg2 bxs" onClick={()=>setEditProj({...p})}>✏️</button><button className="btn bg2 bxs" onClick={()=>delProj(p.id)}>🗑</button></div></td></tr>))}</tbody></table></div>
         <div className="shd">Open Projects</div><div className="g3">{projects.filter(p=>p.open).map(p=>(<div className="pc" key={p.id}><div className="pdot" style={{background:p.color}}/><div style={{flex:1}}><div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:700,color:"var(--t3)"}}>{p.code}</div><div style={{fontSize:13,fontWeight:600}}>{p.name}</div><div style={{fontSize:11,color:"var(--t3)",marginTop:2}}>{p.dept} · {p.type}{p.fieldAllowed&&<span className="badge bsk" style={{fontSize:9,marginLeft:5}}>Field</span>}{p.officeAllowed&&<span className="badge bv" style={{fontSize:9,marginLeft:4}}>Office</span>}</div></div></div>))}</div>
       </div>)}
+      {tab==="entities"&&<EntitiesTab entities={entities} setEntities={setEntities}/>}
       {tab==="activities"&&(<div>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
           <div><div style={{fontWeight:700,fontSize:15}}>Activity Management</div><div style={{fontSize:12,color:"var(--t3)"}}>{activities.filter(a=>a.active).length} active · {activities.filter(a=>!a.active).length} hidden</div></div>
@@ -3944,16 +3680,6 @@ function Settings({user,users,setUsers,projects,setProjects,roles,setRoles,activ
           <div className="pgrid">{PERMISSIONS_LIST.map(p=>{const on=isAll||rDef.permissions.includes(p.key);return(<div className="pi" key={p.key} style={{opacity:isAll&&p.key!=="all"?.55:1}}><div><div style={{fontSize:12,fontWeight:600,color:"var(--t)"}}>{p.label}</div><div className="pkey">{p.key}</div></div><label className="sw"><input type="checkbox" checked={on} disabled={isAll&&p.key!=="all"} onChange={()=>{if(isAll&&p.key!=="all")return;setRoles(prev=>({...prev,[rKey]:{...prev[rKey],permissions:togglePerm(prev[rKey].permissions,p.key)}}));}}/><span className="sldr"/></label></div>);})}</div>
         </div>);})}
       </div>)}
-      {tab==="workflows"&&(
-        <WorkflowsTab
-          workflows={workflows||[]}
-          setWorkflows={setWorkflows||(() => {})}
-          users={users}
-          roles={Object.entries(roles).map(([key,r])=>({key,label:r.label,...r}))}
-          depts={depts}
-          activities={activities||[]}
-        />
-      )}
       {tab==="system"&&(<div className="g2"><div className="card"><div className="card-title" style={{marginBottom:13}}>Scheduling Rules</div>{[["Field rotation cycle","14d ON / 14d OFF"],["Annual leave advance","15 days min"],["Max AL per request","7 days (field)"],["AL carry forward","10 days max"],["Overtime (field)","192h/shift"],["Overtime (office)","48h/week"],["Working hours (field)","12h/day"],["Working hours (office)","8h/day"]].map(([k,v])=>(<div key={k} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid var(--b)",fontSize:13}}><span style={{color:"var(--t2)",fontWeight:500}}>{k}</span><span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,color:"var(--v)",fontWeight:600}}>{v}</span></div>))}</div>
         <div><div className="card" style={{marginBottom:13}}><div className="card-title" style={{marginBottom:12}}>Public Holidays</div>{holidays.map(h=>(<div key={h.id} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid var(--b)",fontSize:13}}><span style={{color:"var(--t2)"}}>{new Date(h.date).toLocaleDateString("en-GB",{weekday:"short",day:"2-digit",month:"long",year:"numeric"})}</span><span style={{fontSize:12,color:"var(--t3)",fontWeight:500}}>{h.name}</span></div>))}{holidays.length===0&&<div style={{fontSize:12,color:"var(--t3)",padding:"8px 0"}}>No holidays configured</div>}</div>
         <div className="card" style={{marginBottom:13}}>
@@ -4009,8 +3735,8 @@ function Settings({user,users,setUsers,projects,setProjects,roles,setRoles,activ
       {/* Modals */}
       {editUser&&(<div className="mo" onClick={e=>e.target.className==="mo"&&setEditUser(null)}><div className="md"><div className="md-title">Edit User</div><div className="fg"><div className="fgrp"><label className="flbl">Full Name</label><input className="fi" value={editUser.name} onChange={e=>setEditUser(u=>({...u,name:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Email</label><input className="fi" value={editUser.email} onChange={e=>setEditUser(u=>({...u,email:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Role</label><select className="fsel" value={editUser.role} onChange={e=>setEditUser(u=>({...u,role:e.target.value}))}>{Object.entries(roles).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select></div><div className="fgrp"><label className="flbl">Staff Type</label><select className="fsel" value={editUser.type} onChange={e=>setEditUser(u=>({...u,type:e.target.value}))}><option value="field">Field</option><option value="office">Office</option></select></div><div className="fgrp"><label className="flbl">Department</label><input className="fi" value={editUser.dept} onChange={e=>setEditUser(u=>({...u,dept:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Line Manager</label><select className="fsel" value={editUser.manager||""} onChange={e=>setEditUser(u=>({...u,manager:Number(e.target.value)||null}))}><option value="">None</option>{mgrs.filter(m=>m.id!==editUser.id&&m.role!=="superadmin").map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></div><div className="fgrp"><label className="flbl">Annual Leave Balance</label><input type="number" step="0.5" className="fi" value={editUser.leaveBalance} onChange={e=>setEditUser(u=>({...u,leaveBalance:Number(e.target.value)}))}/></div><div className="fgrp"><label className="flbl">Used Leave</label><input type="number" step="0.5" className="fi" value={editUser.usedLeave} onChange={e=>setEditUser(u=>({...u,usedLeave:Number(e.target.value)}))}/></div><div className="fgrp"><label className="flbl">Recovery Balance 🔄</label><input type="number" step="0.5" className="fi" value={editUser.recoveryBalance||0} onChange={e=>setEditUser(u=>({...u,recoveryBalance:Number(e.target.value)}))}/></div><div className="fgrp"><label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",userSelect:"none"}}><input type="checkbox" checked={!!editUser.allowOverlap} onChange={e=>setEditUser(u=>({...u,allowOverlap:e.target.checked}))} style={{accentColor:"var(--v)",width:15,height:15,flexShrink:0}}/><span className="flbl" style={{margin:0}}>Allow overlapping requests</span></label><div style={{fontSize:11,color:"var(--t3)",marginTop:3,paddingLeft:23}}>This user can submit leave that overlaps with teammates' approved or pending requests.</div></div></div><div className="md-footer"><button className="btn bo" onClick={()=>setEditUser(null)}>Cancel</button><button className="btn bp" onClick={saveUser}>Save</button></div></div></div>)}
       {showAdd&&(<div className="mo" onClick={e=>e.target.className==="mo"&&setShowAdd(false)}><div className="md"><div className="md-title">Add New User</div><div className="fg"><div className="fgrp"><label className="flbl">Full Name</label><input className="fi" placeholder="First Last" value={newUser.name} onChange={e=>setNewUser(u=>({...u,name:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Email</label><input className="fi" placeholder="name@mazarine.tn" value={newUser.email} onChange={e=>setNewUser(u=>({...u,email:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Role</label><select className="fsel" value={newUser.role} onChange={e=>setNewUser(u=>({...u,role:e.target.value}))}>{Object.entries(roles).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select></div><div className="fgrp"><label className="flbl">Staff Type</label><select className="fsel" value={newUser.type} onChange={e=>setNewUser(u=>({...u,type:e.target.value}))}><option value="field">Field</option><option value="office">Office</option></select></div><div className="fgrp"><label className="flbl">Department</label><input className="fi" placeholder="e.g. Operations" value={newUser.dept} onChange={e=>setNewUser(u=>({...u,dept:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Line Manager</label><select className="fsel" value={newUser.manager||""} onChange={e=>setNewUser(u=>({...u,manager:Number(e.target.value)||null}))}><option value="">None</option>{mgrs.filter(m=>m.role!=="superadmin").map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></div><div className="fgrp"><label className="flbl">Leave Days</label><input type="number" className="fi" value={newUser.leaveBalance} onChange={e=>setNewUser(u=>({...u,leaveBalance:Number(e.target.value)}))}/></div></div><div className="md-footer"><button className="btn bo" onClick={()=>setShowAdd(false)}>Cancel</button><button className="btn bp" onClick={addUser}>Add</button></div></div></div>)}
-      {editProj&&(<div className="mo" onClick={e=>e.target.className==="mo"&&setEditProj(null)}><div className="md"><div className="md-title">Edit Project</div><div className="fg"><div className="fgrp"><label className="flbl">Code</label><input className="fi" value={editProj.code} onChange={e=>setEditProj(p=>({...p,code:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Type</label><select className="fsel" value={editProj.type} onChange={e=>setEditProj(p=>({...p,type:e.target.value}))}>{PTYPES.map(t=><option key={t} value={t}>{t}</option>)}</select></div><div className="fgrp ff"><label className="flbl">Name</label><input className="fi" value={editProj.name} onChange={e=>setEditProj(p=>({...p,name:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Department</label><input className="fi" value={editProj.dept} onChange={e=>setEditProj(p=>({...p,dept:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Color</label><CP value={editProj.color} onChange={c=>setEditProj(p=>({...p,color:c}))}/></div><div className="fgrp"><label className="flbl">Allowed For</label><div style={{display:"flex",gap:14,marginTop:6}}><label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={editProj.fieldAllowed} onChange={e=>setEditProj(p=>({...p,fieldAllowed:e.target.checked}))}/>Field</label><label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={editProj.officeAllowed} onChange={e=>setEditProj(p=>({...p,officeAllowed:e.target.checked}))}/>Office</label></div></div><div className="fgrp ff"><label className="flbl">Status</label><div style={{display:"flex",alignItems:"center",gap:10,marginTop:6}}><label className="sw"><input type="checkbox" checked={editProj.open} onChange={e=>setEditProj(p=>({...p,open:e.target.checked}))}/><span className="sldr"/></label><span style={{fontSize:13}}>{editProj.open?"Open":"Closed"}</span></div></div></div><div className="md-footer"><button className="btn bo" onClick={()=>setEditProj(null)}>Cancel</button><button className="btn bp" onClick={saveProj}>Save</button></div></div></div>)}
-      {showAddProj&&(<div className="mo" onClick={e=>e.target.className==="mo"&&setShowAddProj(false)}><div className="md"><div className="md-title">Add New Project</div><div className="fg"><div className="fgrp"><label className="flbl">Code</label><input className="fi" placeholder="e.g. PROJ-001" value={newProj.code} onChange={e=>setNewProj(p=>({...p,code:e.target.value.toUpperCase()}))}/></div><div className="fgrp"><label className="flbl">Type</label><select className="fsel" value={newProj.type} onChange={e=>setNewProj(p=>({...p,type:e.target.value}))}>{PTYPES.map(t=><option key={t} value={t}>{t}</option>)}</select></div><div className="fgrp ff"><label className="flbl">Name</label><input className="fi" placeholder="Full project name" value={newProj.name} onChange={e=>setNewProj(p=>({...p,name:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Department</label><input className="fi" placeholder="e.g. Operations" value={newProj.dept} onChange={e=>setNewProj(p=>({...p,dept:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Color</label><CP value={newProj.color} onChange={c=>setNewProj(p=>({...p,color:c}))}/></div><div className="fgrp"><label className="flbl">Allowed For</label><div style={{display:"flex",gap:14,marginTop:6}}><label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={newProj.fieldAllowed} onChange={e=>setNewProj(p=>({...p,fieldAllowed:e.target.checked}))}/>Field</label><label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={newProj.officeAllowed} onChange={e=>setNewProj(p=>({...p,officeAllowed:e.target.checked}))}/>Office</label></div></div></div><div className="md-footer"><button className="btn bo" onClick={()=>setShowAddProj(false)}>Cancel</button><button className="btn bp" onClick={addProj}>Add</button></div></div></div>)}
+      {editProj&&(<div className="mo" onClick={e=>e.target.className==="mo"&&setEditProj(null)}><div className="md"><div className="md-title">Edit Project</div><div className="fg"><div className="fgrp"><label className="flbl">Code</label><input className="fi" value={editProj.code} onChange={e=>setEditProj(p=>({...p,code:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Type</label><select className="fsel" value={editProj.type} onChange={e=>setEditProj(p=>({...p,type:e.target.value}))}>{PTYPES.map(t=><option key={t} value={t}>{t}</option>)}</select></div><div className="fgrp"><label className="flbl">Entity</label><select className="fsel" value={editProj.entityId||""} onChange={e=>setEditProj(p=>({...p,entityId:e.target.value?Number(e.target.value):null}))}><option value="">— none —</option>{entities.map(e=><option key={e.id} value={e.id}>{e.code} — {e.name}</option>)}</select></div><div className="fgrp ff"><label className="flbl">Name</label><input className="fi" value={editProj.name} onChange={e=>setEditProj(p=>({...p,name:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Department</label><input className="fi" value={editProj.dept} onChange={e=>setEditProj(p=>({...p,dept:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Color</label><CP value={editProj.color} onChange={c=>setEditProj(p=>({...p,color:c}))}/></div><div className="fgrp"><label className="flbl">Allowed For</label><div style={{display:"flex",gap:14,marginTop:6}}><label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={editProj.fieldAllowed} onChange={e=>setEditProj(p=>({...p,fieldAllowed:e.target.checked}))}/>Field</label><label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={editProj.officeAllowed} onChange={e=>setEditProj(p=>({...p,officeAllowed:e.target.checked}))}/>Office</label></div></div><div className="fgrp ff"><label className="flbl">Status</label><div style={{display:"flex",alignItems:"center",gap:10,marginTop:6}}><label className="sw"><input type="checkbox" checked={editProj.open} onChange={e=>setEditProj(p=>({...p,open:e.target.checked}))}/><span className="sldr"/></label><span style={{fontSize:13}}>{editProj.open?"Open":"Closed"}</span></div></div><div style={{display:"flex",flexDirection:"column",gap:4}}><label style={{fontSize:12,color:"var(--t3)"}}>Expiry Date</label><input type="date" className="fi" value={editProj.expiryDate||""} onChange={e=>setEditProj({...editProj,expiryDate:e.target.value||null})}/></div></div><div className="md-footer"><button className="btn bo" onClick={()=>setEditProj(null)}>Cancel</button><button className="btn bp" onClick={saveProj}>Save</button></div></div></div>)}
+      {showAddProj&&(<div className="mo" onClick={e=>e.target.className==="mo"&&setShowAddProj(false)}><div className="md"><div className="md-title">Add New Project</div><div className="fg"><div className="fgrp"><label className="flbl">Code</label><input className="fi" placeholder="e.g. PROJ-001" value={newProj.code} onChange={e=>setNewProj(p=>({...p,code:e.target.value.toUpperCase()}))}/></div><div className="fgrp"><label className="flbl">Type</label><select className="fsel" value={newProj.type} onChange={e=>setNewProj(p=>({...p,type:e.target.value}))}>{PTYPES.map(t=><option key={t} value={t}>{t}</option>)}</select></div><div className="fgrp"><label className="flbl">Entity</label><select className="fsel" value={newProj.entityId||""} onChange={e=>setNewProj(p=>({...p,entityId:e.target.value?Number(e.target.value):null}))}><option value="">— none —</option>{entities.map(e=><option key={e.id} value={e.id}>{e.code} — {e.name}</option>)}</select></div><div className="fgrp ff"><label className="flbl">Name</label><input className="fi" placeholder="Full project name" value={newProj.name} onChange={e=>setNewProj(p=>({...p,name:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Department</label><input className="fi" placeholder="e.g. Operations" value={newProj.dept} onChange={e=>setNewProj(p=>({...p,dept:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Color</label><CP value={newProj.color} onChange={c=>setNewProj(p=>({...p,color:c}))}/></div><div className="fgrp"><label className="flbl">Allowed For</label><div style={{display:"flex",gap:14,marginTop:6}}><label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={newProj.fieldAllowed} onChange={e=>setNewProj(p=>({...p,fieldAllowed:e.target.checked}))}/>Field</label><label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={newProj.officeAllowed} onChange={e=>setNewProj(p=>({...p,officeAllowed:e.target.checked}))}/>Office</label></div></div><div style={{display:"flex",flexDirection:"column",gap:4}}><label style={{fontSize:12,color:"var(--t3)"}}>Expiry Date</label><input type="date" className="fi" value={newProj.expiryDate||""} onChange={e=>setNewProj({...newProj,expiryDate:e.target.value||null})}/></div></div><div className="md-footer"><button className="btn bo" onClick={()=>setShowAddProj(false)}>Cancel</button><button className="btn bp" onClick={addProj}>Add</button></div></div></div>)}
       {showAddRole&&(<div className="mo" onClick={e=>e.target.className==="mo"&&setShowAddRole(false)}><div className="md"><div className="md-title">Create New Role</div><div className="fg"><div className="fgrp"><label className="flbl">Role Key</label><input className="fi" placeholder="e.g. supervisor" value={newRole.key} onChange={e=>setNewRole(r=>({...r,key:e.target.value.toLowerCase().replace(/\s+/g,"_")}))}/></div><div className="fgrp"><label className="flbl">Display Label</label><input className="fi" placeholder="e.g. Supervisor" value={newRole.label} onChange={e=>setNewRole(r=>({...r,label:e.target.value}))}/></div><div className="fgrp ff"><label className="flbl">Badge Color</label><CP value={newRole.color} onChange={c=>setNewRole(r=>({...r,color:c}))}/></div><div className="fgrp ff"><label className="flbl">Permissions</label><div className="pgrid" style={{marginTop:6}}>{PERMISSIONS_LIST.map(p=>(<div className="pi" key={p.key}><div><div style={{fontSize:12,fontWeight:600,color:"var(--t)"}}>{p.label}</div><div className="pkey">{p.key}</div></div><label className="sw"><input type="checkbox" checked={newRole.permissions.includes(p.key)} onChange={()=>setNewRole(r=>({...r,permissions:togglePerm(r.permissions,p.key)}))}/><span className="sldr"/></label></div>))}</div></div></div><div style={{marginTop:10,padding:"9px 13px",background:"var(--s2)",borderRadius:"var(--rs)",fontSize:12}}>Preview: <RoleBadge role={newRole.key||"_"} roles={{[newRole.key||"_"]:{label:newRole.label||"New Role",color:newRole.color,bg:colorBg(newRole.color)}}}/></div><div className="md-footer"><button className="btn bo" onClick={()=>setShowAddRole(false)}>Cancel</button><button className="btn bp" onClick={addRole}>Create Role</button></div></div></div>)}
       {editRole&&(<div className="mo" onClick={e=>e.target.className==="mo"&&setEditRole(null)}><div className="md"><div className="md-title">Edit Role — <span style={{color:editRole.color}}>{editRole.label}</span></div>{editRole.system&&<div style={{padding:"8px 12px",background:"var(--aml)",borderRadius:"var(--rs)",fontSize:12,color:"var(--am)",marginBottom:14}}>⚠ System role: key is fixed, but label, color, and permissions can be changed.</div>}<div className="fg"><div className="fgrp"><label className="flbl">Display Label</label><input className="fi" value={editRole.label} onChange={e=>setEditRole(r=>({...r,label:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Role Key (locked)</label><input className="fi" value={editRole.key} disabled style={{opacity:.5}}/></div><div className="fgrp ff"><label className="flbl">Badge Color</label><CP value={editRole.color} onChange={c=>setEditRole(r=>({...r,color:c}))}/></div><div className="fgrp ff"><label className="flbl">Permissions</label><div className="pgrid" style={{marginTop:6}}>{PERMISSIONS_LIST.map(p=>{const isAll=editRole.permissions.includes("all");const on=isAll||editRole.permissions.includes(p.key);return(<div className="pi" key={p.key} style={{opacity:isAll&&p.key!=="all"?.55:1}}><div><div style={{fontSize:12,fontWeight:600,color:"var(--t)"}}>{p.label}</div><div className="pkey">{p.key}</div></div><label className="sw"><input type="checkbox" checked={on} disabled={isAll&&p.key!=="all"} onChange={()=>setEditRole(r=>({...r,permissions:togglePerm(r.permissions,p.key)}))}/><span className="sldr"/></label></div>);})}</div></div></div><div style={{marginTop:10,padding:"9px 13px",background:"var(--s2)",borderRadius:"var(--rs)",fontSize:12}}>Preview: <RoleBadge role={editRole.key} roles={{[editRole.key]:{label:editRole.label,color:editRole.color,bg:colorBg(editRole.color)}}}/></div><div className="md-footer"><button className="btn bo" onClick={()=>setEditRole(null)}>Cancel</button><button className="btn bp" onClick={saveRole}>Save Role</button></div></div></div>)}
       {importModal&&(
@@ -4333,8 +4059,8 @@ export default function App() {
   const [roles,         setRoles]         = useState(INITIAL_ROLES);
   const [activities,    setActivities]    = useState([]);
   const [holidays,      setHolidays]      = useState([]);
+  const [entities,      setEntities]      = useState([]);
   const [rotationPlans, setRotationPlans] = useState([]);
-  const [workflows,     setWorkflows]     = useState([]);
   const [companySetting,setCompanySetting]= useState({companyName:"MAZARINE",companySubtitle:"Energy Tunisia",logoBase64:null});
   const [timesheetData, setTimesheetData] = useState({});
   const [tsStatuses,    setTsStatuses]    = useState(INITIAL_TS_STATUS);
@@ -4366,14 +4092,15 @@ export default function App() {
     const loadData = async () => {
       setLoading(true);
       try {
-        const [usersData, projectsData, requestsData, rolesData, activitiesData, rotationsData, holidaysData] = await Promise.all([
+        const [usersData, projectsData, requestsData, rolesData, activitiesData, rotationsData, holidaysData, entitiesData] = await Promise.all([
           usersAPI.getAll(),
           projectsAPI.getAll(),
           requestsAPI.getAll(),
           rolesAPI.getAll(),
           activitiesAPI.getAll(),
           rotationAPI.getAll(),
-          holidaysAPI.getAll()
+          holidaysAPI.getAll(),
+          companyEntitiesAPI.getAll()
         ]);
         
         setUsers(usersData.map(u => ({
@@ -4403,7 +4130,11 @@ export default function App() {
           open: p.open,
           fieldAllowed: p.field_allowed,
           officeAllowed: p.office_allowed,
-          color: p.color
+          color: p.color,
+          expiryDate: p.expiry_date || null,
+          entityId: p.entity_id || null,
+          entityCode: p.entity_code || null,
+          entityName: p.entity_name || null
         })));
         
         setRequests(requestsData.map(r => ({
@@ -4450,6 +4181,7 @@ export default function App() {
         const mappedHolidays = holidaysData.map(h=>({id:h.id,date:h.date.slice(0,10),name:h.name}));
         HOLIDAYS = mappedHolidays.map(h=>h.date);
         setHolidays(mappedHolidays);
+        setEntities(entitiesData || []);
 
       } catch (err) {
         console.error('Failed to load data:', err);
@@ -4529,6 +4261,7 @@ export default function App() {
     setProjects([]);
     setRoles({});
     setActivities([]);
+    setEntities([]);
     setRotationPlans([]);
     setPushSubbed(false);
   }
@@ -4779,7 +4512,7 @@ export default function App() {
                 {view==="approvals"  && canApp && <ApprovalsView user={user} requests={requests} setRequests={setRequests} users={users} setUsers={setUsers} roles={roles} tsStatuses={tsStatuses} setTsStatuses={setTsStatuses} timesheetData={timesheetData} setTimesheetData={setTimesheetData} projects={projects} activities={activities} rotations={rotationPlans}/>}
                 {view==="hr-report"  && hasHR  && <HRReport requests={requests} users={users} tsStatuses={tsStatuses} activities={activities}/>}
                 {view==="audit"      && (isAd||hasHR) && <AuditTrailView users={users}/>}
-                {view==="settings"   && isAd   && <Settings user={user} users={users} setUsers={setUsers} projects={projects} setProjects={setProjects} roles={roles} setRoles={setRoles} onResetPwd={adminResetPwd} activities={activities} setActivities={setActivities} holidays={holidays} setHolidays={setHolidays} workflows={workflows} setWorkflows={setWorkflows}/>}
+                {view==="settings"   && isAd   && <Settings user={user} users={users} setUsers={setUsers} projects={projects} setProjects={setProjects} roles={roles} setRoles={setRoles} onResetPwd={adminResetPwd} activities={activities} setActivities={setActivities} holidays={holidays} setHolidays={setHolidays} entities={entities} setEntities={setEntities}/>}
               </>
             )}
           </div>

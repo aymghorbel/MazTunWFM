@@ -270,21 +270,23 @@ export const uploadsAPI = {
   getDownloadUrl: (blobName) => fetchWithAuth(`/uploads/${encodeURIComponent(blobName)}/url`),
 };
 
-// Workflow Engine API
-export const workflowsAPI = {
-  getAll:      (params = {}) => fetchWithAuth(`/workflows?${new URLSearchParams(params)}`),
-  create:      (data)        => fetchWithAuth('/workflows', { method: 'POST', body: JSON.stringify(data) }),
-  update:      (id, data)    => fetchWithAuth(`/workflows/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  delete:      (id)          => fetchWithAuth(`/workflows/${id}`, { method: 'DELETE' }),
-  getInstance: (type, ref)   => fetchWithAuth(`/workflows/instances/${encodeURIComponent(type)}/${encodeURIComponent(ref)}`),
-  approveStep: (instanceId, stepIndex, data) =>
-    fetchWithAuth(`/workflow-approvals/${instanceId}/step/${stepIndex}`, { method: 'POST', body: JSON.stringify(data) }),
-};
-
 // Exports API
 export const exportsAPI = {
   payroll: (year, month) => fetchWithAuth('/exports/payroll', {
     method: 'POST',
     body: JSON.stringify({ year, month }),
   }),
+};
+
+// Company Entities API
+export const companyEntitiesAPI = {
+  getAll:  ()         => fetchWithAuth('/company-entities'),
+  create:  (data)     => fetchWithAuth('/company-entities', { method: 'POST', body: JSON.stringify(data) }),
+  update:  (id, data) => fetchWithAuth(`/company-entities/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete:  (id)       => fetchWithAuth(`/company-entities/${id}`, { method: 'DELETE' }),
+};
+
+// Reports API
+export const reportsAPI = {
+  allocation: (year, month) => fetchWithAuth(`/reports/allocation?year=${year}&month=${month}`),
 };

@@ -10,7 +10,9 @@
     "migrate:sso": "node migrations/add_azure_sso.js",
     "migrate:schema": "node migrations/remove_capex.js",
     "migrate:workflows": "node migrations/add_workflows.js",
-    "migrate:seed-workflows": "node migrations/seed_default_workflows.js"
+    "migrate:seed-workflows": "node migrations/seed_default_workflows.js",
+    "migrate:project-expiry": "node migrations/add_project_expiry.js",
+    "migrate:company-entities": "node migrations/add_company_entities.js"
   },
   "dependencies": {
     "express": "^4.18.2",

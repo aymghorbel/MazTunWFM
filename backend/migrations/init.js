@@ -71,17 +71,35 @@ const initDatabase = async () => {
     await client.query(`ALTER TABLE users ALTER COLUMN leave_balance TYPE NUMERIC(6,1)`);
     await client.query(`ALTER TABLE users ALTER COLUMN used_leave TYPE NUMERIC(6,1)`);
     
+    // Company entities table (must be before projects for FK)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS company_entities (
+        id         SERIAL PRIMARY KEY,
+        code       VARCHAR(10) UNIQUE NOT NULL,
+        name       VARCHAR(100) NOT NULL,
+        active     BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    await client.query(`
+      INSERT INTO company_entities (code, name)
+      VALUES ('23','Entity 23'),('24','Entity 24'),('25','Entity 25')
+      ON CONFLICT (code) DO NOTHING;
+    `);
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS projects (
         id SERIAL PRIMARY KEY,
         code VARCHAR(50) UNIQUE NOT NULL,
         name VARCHAR(255) NOT NULL,
-        type VARCHAR(20) CHECK (type IN ('OPEX', 'OVERHEAD', 'INTERNAL')),
+        type VARCHAR(20) CHECK (type IN ('CAPEX','OPEX','EXPLORATION')),
         dept VARCHAR(100),
         open BOOLEAN DEFAULT true,
         field_allowed BOOLEAN DEFAULT true,
         office_allowed BOOLEAN DEFAULT true,
         color VARCHAR(7) DEFAULT '#7c3aed',
+        entity_id INTEGER REFERENCES company_entities(id),
+        expiry_date DATE,
         created_at TIMESTAMP DEFAULT NOW()
       );
     `);
