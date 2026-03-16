@@ -1,0 +1,182 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# master_MazTunWFM.yml
+# Full-stack CI/CD — Azure App Service (backend) + Azure Static Web Apps (frontend)
+#
+# Required GitHub Secrets:
+#   ACR_LOGIN_SERVER            — e.g. mazacr.azurecr.io
+#   ACR_USERNAME                — ACR admin username
+#   ACR_PASSWORD                — ACR admin password
+#   AZURE_WEBAPP_PUBLISH_PROFILE — Download from Azure Portal → Web App → Get publish profile
+#   AZURE_STATIC_WEB_APPS_API_TOKEN — From Azure Static Web Apps resource
+#
+# Required GitHub Variables (Settings → Variables):
+#   AZURE_WEBAPP_NAME           — Azure Web App name (backend)
+#   REACT_APP_API_URL           — Backend API base URL for the frontend build
+#   REACT_APP_AZURE_CLIENT_ID   — Azure AD app client ID (SSO)
+#   REACT_APP_AZURE_TENANT_ID   — Azure AD tenant ID (SSO)
+# ──────────────────────────────────────────────────────────────────────────────
+
+name: CI/CD — MazTunWFM Full Stack
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:           # allow manual runs from the GitHub Actions UI
+    inputs:
+      deploy_backend:
+        description: 'Deploy backend'
+        required: false
+        default: 'true'
+        type: boolean
+      deploy_frontend:
+        description: 'Deploy frontend'
+        required: false
+        default: 'true'
+        type: boolean
+
+env:
+  IMAGE_NAME: mazarine-api
+
+# ── JOB 1 — detect which parts of the repo changed ───────────────────────────
+jobs:
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      backend:  ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Path filter
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+            frontend:
+              - 'src/**'
+              - 'public/**'
+              - 'mazarine-timesheet-v5.jsx'
+              - 'package.json'
+              - 'staticwebapp.config.json'
+              - 'nginx.conf'
+
+# ── JOB 2 — build & push backend Docker image, deploy to Azure App Service ────
+  deploy_backend:
+    name: Backend — Build, Push & Deploy
+    runs-on: ubuntu-latest
+    needs: changes
+    if: |
+      needs.changes.outputs.backend == 'true' ||
+      github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_backend == 'true'
+    environment:
+      name: production
+      url: https://${{ vars.AZURE_WEBAPP_NAME }}.azurewebsites.net
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to Azure Container Registry
+        uses: azure/docker-login@v2
+        with:
+          login-server: ${{ secrets.ACR_LOGIN_SERVER }}
+          username:     ${{ secrets.ACR_USERNAME }}
+          password:     ${{ secrets.ACR_PASSWORD }}
+
+      - name: Set image tags
+        id: tags
+        run: |
+          SHA_TAG=${{ secrets.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          LATEST_TAG=${{ secrets.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:latest
+          echo "sha_tag=$SHA_TAG"       >> $GITHUB_OUTPUT
+          echo "latest_tag=$LATEST_TAG" >> $GITHUB_OUTPUT
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            --label "git.sha=${{ github.sha }}" \
+            --label "git.ref=${{ github.ref }}" \
+            --label "build.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -t ${{ steps.tags.outputs.sha_tag }} \
+            -t ${{ steps.tags.outputs.latest_tag }} \
+            ./backend
+
+      - name: Push Docker image to ACR
+        run: |
+          docker push ${{ steps.tags.outputs.sha_tag }}
+          docker push ${{ steps.tags.outputs.latest_tag }}
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name:        ${{ vars.AZURE_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          images:          ${{ steps.tags.outputs.sha_tag }}
+
+      - name: Health check
+        run: |
+          echo "Waiting 30 s for container to start..."
+          sleep 30
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            https://${{ vars.AZURE_WEBAPP_NAME }}.azurewebsites.net/api/health || echo "000")
+          echo "Health check status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "::warning::Health check returned HTTP $STATUS — verify the deployment."
+          fi
+
+# ── JOB 3 — build React app and deploy to Azure Static Web Apps ───────────────
+  deploy_frontend:
+    name: Frontend — Build & Deploy
+    runs-on: ubuntu-latest
+    needs: changes
+    if: |
+      needs.changes.outputs.frontend == 'true' ||
+      github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_frontend == 'true'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build React application
+        run: npm run build
+        env:
+          REACT_APP_API_URL:            ${{ vars.REACT_APP_API_URL }}
+          REACT_APP_AZURE_CLIENT_ID:    ${{ vars.REACT_APP_AZURE_CLIENT_ID }}
+          REACT_APP_AZURE_TENANT_ID:    ${{ vars.REACT_APP_AZURE_TENANT_ID }}
+          CI: false                      # treat warnings as warnings, not errors
+
+      - name: Deploy to Azure Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          repo_token:                      ${{ secrets.GITHUB_TOKEN }}
+          action:                          upload
+          app_location:                    /
+          output_location:                 build
+          skip_api_build:                  true
+
+# ── JOB 4 — close preview environment on PR close ────────────────────────────
+  close_pr_preview:
+    name: Close PR Preview
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    steps:
+      - name: Close Pull Request — Azure Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          action:                          close
