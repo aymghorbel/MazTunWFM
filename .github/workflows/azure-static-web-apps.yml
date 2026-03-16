@@ -2,7 +2,7 @@ name: Deploy Frontend — Azure Static Web Apps
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - 'src/**'
       - 'public/**'
@@ -11,7 +11,7 @@ on:
       - 'staticwebapp.config.json'
   pull_request:
     types: [opened, synchronize, reopened, closed]
-    branches: [main]
+    branches: [main, dev]
 
 jobs:
   build_and_deploy:

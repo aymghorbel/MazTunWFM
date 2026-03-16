@@ -23,11 +23,13 @@ on:
     branches:
       - main
       - master
+      - dev
   pull_request:
     types: [opened, synchronize, reopened, closed]
     branches:
       - main
       - master
+      - dev
   workflow_dispatch:
     inputs:
       deploy_backend:
