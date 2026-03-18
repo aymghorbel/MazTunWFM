@@ -290,3 +290,11 @@ export const companyEntitiesAPI = {
 export const reportsAPI = {
   allocation: (year, month) => fetchWithAuth(`/reports/allocation?year=${year}&month=${month}`),
 };
+
+// Workflows API
+export const workflowsAPI = {
+  getAll:  ()         => fetchWithAuth('/workflows'),
+  create:  (data)     => fetchWithAuth('/workflows', { method: 'POST', body: JSON.stringify(data) }),
+  update:  (id, data) => fetchWithAuth(`/workflows/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete:  (id)       => fetchWithAuth(`/workflows/${id}`, { method: 'DELETE' }),
+};

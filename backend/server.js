@@ -846,9 +846,11 @@ app.get('/api/requests', authenticateToken, async (req, res) => {
   try {
     const { userId, status } = req.query;
     let query = `
-      SELECT r.*, u.name as user_name, u.email as user_email
+      SELECT r.*, u.name as user_name, u.email as user_email,
+        wa.approver_id as current_approver_id
       FROM requests r
       JOIN users u ON r.user_id = u.id
+      LEFT JOIN workflow_approvals wa ON wa.instance_id = r.workflow_instance_id AND wa.status = 'pending'
       WHERE 1=1
     `;
     const params = [];
@@ -1008,35 +1010,51 @@ app.post('/api/requests', authenticateToken, async (req, res) => {
       recoveryDeducted = Number(daysCount);
     }
 
+    // Find matching workflow for this request
+    const entityType = type === 'Temporary Authorization' ? 'temp_auth' : 'leave';
+    const submitterRow = await client.query('SELECT * FROM users WHERE id=$1', [userId]);
+    const submitter = submitterRow.rows[0];
+    const requestData = { type, days_count: Number(daysCount) || 0 };
+    const matchedWf = await findMatchingWorkflow(client, entityType, submitter, requestData);
+
+    let wfInstanceId = null;
+    let wfApproverIds = [];
+    let wfTotalSteps = 1;
+
+    if (matchedWf) {
+      const wfResult = await createWorkflowInstance(client, matchedWf, entityType, `request:pending`, submitter.id, requestData);
+      wfInstanceId = wfResult.instanceId;
+      wfApproverIds = wfResult.approverIds;
+      wfTotalSteps = wfResult.totalSteps;
+    }
+
     const result = await client.query(
-      `INSERT INTO requests (user_id, type, start_date, end_date, comment, days_count, duration_hours, half_day_start, half_day_end, balance_source, auth_start_time, auth_end_time, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'Pending', NOW())
+      `INSERT INTO requests (user_id, type, start_date, end_date, comment, days_count, duration_hours, half_day_start, half_day_end, balance_source, auth_start_time, auth_end_time, status, created_at, approval_step, total_steps, workflow_instance_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'Pending', NOW(), 1, $13, $14)
        RETURNING *`,
-      [userId, type, start, end, comment||null, daysCount, durationHours||null, halfDayStart||null, halfDayEnd||null, balanceSource||'annual', authStartTime||null, authEndTime||null]
+      [userId, type, start, end, comment||null, daysCount, durationHours||null, halfDayStart||null, halfDayEnd||null, balanceSource||'annual', authStartTime||null, authEndTime||null, wfTotalSteps, wfInstanceId]
     );
+
+    // Update workflow instance entity_ref with actual request ID
+    if (wfInstanceId) {
+      await client.query('UPDATE workflow_instances SET entity_ref=$1 WHERE id=$2', [`request:${result.rows[0].id}`, wfInstanceId]);
+    }
 
     await client.query('COMMIT');
     res.status(201).json({ ...result.rows[0], daysDeducted, recoveryDeducted });
 
     // Notify approver(s) asynchronously (email + push)
     Promise.all([loadEmailConfig(), loadPushCfg()]).then(async ([emailCfg, pushCfg]) => {
-      const empRow = await pool.query('SELECT name FROM users WHERE id=$1', [userId]);
-      const empName = empRow.rows[0]?.name || 'Employee';
-      let approverIds = [], approverEmails = [];
-      if (type === 'Extra Days OnSite') {
-        const days = Number(daysCount);
-        const roleKey = days > 3 ? 'country_manager' : days === 3 ? 'operations_manager' : null;
-        if (roleKey) {
-          const rows = await pool.query('SELECT id, email FROM users WHERE role=$1 AND active=true', [roleKey]);
-          approverIds = rows.rows.map(r => r.id);
-          approverEmails = rows.rows.map(r => r.email);
-        } else {
-          const mgr = await pool.query('SELECT u2.id, u2.email FROM users u1 LEFT JOIN users u2 ON u2.id=u1.manager_id WHERE u1.id=$1', [userId]);
-          if (mgr.rows[0]?.id) { approverIds.push(mgr.rows[0].id); approverEmails.push(mgr.rows[0].email); }
-        }
-      } else {
-        const mgr = await pool.query('SELECT u2.id, u2.email FROM users u1 LEFT JOIN users u2 ON u2.id=u1.manager_id WHERE u1.id=$1', [userId]);
-        if (mgr.rows[0]?.id) { approverIds.push(mgr.rows[0].id); approverEmails.push(mgr.rows[0].email); }
+      const empName = submitter.name || 'Employee';
+      let approverIds = wfApproverIds.length > 0 ? wfApproverIds : [];
+      let approverEmails = [];
+      // If no workflow matched, fallback to direct manager
+      if (approverIds.length === 0) {
+        if (submitter.manager_id) { approverIds.push(submitter.manager_id); }
+      }
+      if (approverIds.length > 0) {
+        const emailRows = await pool.query('SELECT id, email FROM users WHERE id = ANY($1)', [approverIds]);
+        approverEmails = emailRows.rows.map(r => r.email);
       }
       if (emailCfg.notify_new_request && emailCfg.provider !== 'disabled') {
         for (const email of approverEmails) {
@@ -1073,32 +1091,76 @@ app.put('/api/requests/:id', authenticateToken, async (req, res) => {
 
     await client.query('BEGIN');
 
-    const result = await client.query(
-      `UPDATE requests SET status=$1, review_comment=$2, reviewed_by=$3, reviewed_at=NOW()
-       WHERE id=$4 RETURNING *`,
-      [status, reviewComment, req.user.id, req.params.id]
-    );
-
-    if (result.rows.length === 0) {
+    // Fetch current request
+    const existing = await client.query('SELECT * FROM requests WHERE id=$1', [req.params.id]);
+    if (existing.rows.length === 0) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Request not found' });
     }
+    const current = existing.rows[0];
 
     let affectedMonths = [];
     let daysRestored = 0, recoveryRestored = 0;
+    let finalStatus = status;
+    let escalatedToL2 = false;
+    let nextApproverIds = [];
+
+    // Use workflow engine if this request has a workflow instance
+    if (current.workflow_instance_id && status === 'Approved') {
+      const requestData = { type: current.type, days_count: Number(current.days_count) || 0 };
+      const wfResult = await advanceWorkflow(client, current.workflow_instance_id, req.user.id, status, reviewComment, requestData);
+      finalStatus = wfResult.finalStatus;
+      nextApproverIds = wfResult.nextApproverIds || [];
+
+      if (finalStatus === 'Pending') {
+        // Escalate to next step
+        const stepNum = (current.approval_step || 1) + 1;
+        await client.query(
+          `UPDATE requests SET status='Pending L2', approval_step=$1,
+           step1_reviewed_by=$2, step1_reviewed_at=NOW(), step1_comment=$3
+           WHERE id=$4`,
+          [stepNum, req.user.id, reviewComment, req.params.id]
+        );
+        finalStatus = 'Pending L2';
+        escalatedToL2 = true;
+      } else {
+        // Final approval or rejection
+        await client.query(
+          `UPDATE requests SET status=$1, review_comment=$2, reviewed_by=$3, reviewed_at=NOW() WHERE id=$4`,
+          [finalStatus, reviewComment, req.user.id, req.params.id]
+        );
+      }
+    } else if (current.workflow_instance_id && status === 'Rejected') {
+      const requestData = { type: current.type, days_count: Number(current.days_count) || 0 };
+      await advanceWorkflow(client, current.workflow_instance_id, req.user.id, status, reviewComment, requestData);
+      await client.query(
+        `UPDATE requests SET status='Rejected', review_comment=$1, reviewed_by=$2, reviewed_at=NOW() WHERE id=$3`,
+        [reviewComment, req.user.id, req.params.id]
+      );
+      finalStatus = 'Rejected';
+    } else {
+      // Legacy: no workflow instance — direct update
+      await client.query(
+        `UPDATE requests SET status=$1, review_comment=$2, reviewed_by=$3, reviewed_at=NOW() WHERE id=$4`,
+        [status, reviewComment, req.user.id, req.params.id]
+      );
+    }
+
+    // Re-fetch updated request
+    const result = await client.query('SELECT * FROM requests WHERE id=$1', [req.params.id]);
     const request = result.rows[0];
     const annualLeaveTypes = ['Annual Leave', 'Sick Leave', 'Compassionate'];
 
-    if (status === 'Approved') {
-      // Balance was already deducted on submission — only sync timesheet entries
+    if (finalStatus === 'Approved') {
+      // Final approval — sync timesheet entries
       const activity = await resolveApprovalActivity(client, request.type);
       if (activity) {
         const uRow = await client.query('SELECT type FROM users WHERE id=$1', [request.user_id]);
         const userType = uRow.rows[0]?.type || 'office';
         affectedMonths = await syncTimesheetEntries(client, request, activity, userType);
       }
-    } else if (status === 'Rejected') {
-      // Restore leave balance on rejection (was deducted at submission)
+    } else if (finalStatus === 'Rejected') {
+      // Restore leave balance on rejection (at any step)
       if (annualLeaveTypes.includes(request.type) && Number(request.days_count) > 0) {
         if (request.balance_source === 'recovery') {
           await client.query('UPDATE users SET recovery_balance = recovery_balance + $1 WHERE id=$2',
@@ -1117,27 +1179,56 @@ app.put('/api/requests/:id', authenticateToken, async (req, res) => {
     }
 
     await client.query('COMMIT');
-    const req2 = result.rows[0];
+    const req2 = request;
     const reqUserRow = await pool.query('SELECT name, email FROM users WHERE id=$1', [req2.user_id]);
     const reqUserName  = reqUserRow.rows[0]?.name  || `id=${req2.user_id}`;
     const reqUserEmail = reqUserRow.rows[0]?.email || null;
-    logAudit(req.user.id, `request_${status.toLowerCase()}`, `${status} ${req2.type} for ${reqUserName} (${req2.start_date}→${req2.end_date})`, req2.user_id);
+    logAudit(req.user.id, `request_${(escalatedToL2 ? 'approved_l1' : status.toLowerCase())}`, `${escalatedToL2 ? 'Approved (L1)' : status} ${req2.type} for ${reqUserName} (${req2.start_date}→${req2.end_date})`, req2.user_id);
     res.json({ ...req2, affectedMonths, daysRestored, recoveryRestored });
 
-    // Notify request owner of decision (email + push)
+    // Notifications (email + push)
     Promise.all([loadEmailConfig(), loadPushCfg()]).then(async ([emailCfg, pushCfg]) => {
-      const icon = status === 'Approved' ? '✅' : '❌';
-      const color = status === 'Approved' ? '#10b981' : '#ef4444';
-      if (emailCfg.notify_request_decision && emailCfg.provider !== 'disabled' && reqUserEmail) {
-        sendEmailSafe(reqUserEmail, `Your ${escapeHtml(req2.type)} request has been ${escapeHtml(status)}`,
-          emailWrap(`${icon} Request ${escapeHtml(status)}`,
-            `Your <b>${escapeHtml(req2.type)}</b> request has been <span style="color:${color};font-weight:700">${escapeHtml(status)}</span>.<br><br>
-             <b>Period:</b> ${escapeHtml(req2.start_date)} → ${escapeHtml(req2.end_date)}<br>
-             <b>Days:</b> ${escapeHtml(String(req2.days_count))}<br>
-             ${req2.review_comment ? `<b>Comment:</b> ${escapeHtml(req2.review_comment)}<br>` : ''}`));
-      }
-      if (pushCfg.push_notify_request_decision) {
-        sendPush(req2.user_id, `${icon} Request ${status}`, `${req2.type} · ${req2.start_date} → ${req2.end_date}`, '/');
+      if (escalatedToL2) {
+        // Notify next approver(s) from workflow engine
+        if (nextApproverIds.length > 0) {
+          const l2Rows = await pool.query('SELECT id, email FROM users WHERE id = ANY($1)', [nextApproverIds]);
+          for (const approver of l2Rows.rows) {
+            if (emailCfg.notify_new_request && emailCfg.provider !== 'disabled') {
+              sendEmailSafe(approver.email, `[Next Approval] ${escapeHtml(req2.type)} request from ${escapeHtml(reqUserName)}`,
+                emailWrap(`${escapeHtml(req2.type)} — Approval Required`,
+                  `<b>${escapeHtml(reqUserName)}</b>'s <b>${escapeHtml(req2.type)}</b> request requires your approval.<br><br>
+                   <b>Period:</b> ${escapeHtml(req2.start_date)} → ${escapeHtml(req2.end_date)}<br>
+                   <b>Days:</b> ${escapeHtml(String(req2.days_count))}<br>
+                   <br>Please log in to the Mazarine Timesheet to review and approve.`));
+            }
+            if (pushCfg.push_notify_new_request) {
+              sendPush(approver.id, `🔄 Approval needed`, `${reqUserName} · ${req2.type} · ${req2.days_count}d`, '/');
+            }
+          }
+        }
+        // Notify employee that step was approved, pending next
+        if (emailCfg.notify_request_decision && emailCfg.provider !== 'disabled' && reqUserEmail) {
+          sendEmailSafe(reqUserEmail, `Your ${escapeHtml(req2.type)} request — Step approved, pending final approval`,
+            emailWrap('✅ Step Approved — Pending Final Approval',
+              `Your <b>${escapeHtml(req2.type)}</b> request has been <span style="color:#10b981;font-weight:700">approved</span> and is now awaiting the next approval step.<br><br>
+               <b>Period:</b> ${escapeHtml(req2.start_date)} → ${escapeHtml(req2.end_date)}<br>
+               <b>Days:</b> ${escapeHtml(String(req2.days_count))}`));
+        }
+      } else {
+        // Final decision notification to employee
+        const icon = finalStatus === 'Approved' ? '✅' : '❌';
+        const color = finalStatus === 'Approved' ? '#10b981' : '#ef4444';
+        if (emailCfg.notify_request_decision && emailCfg.provider !== 'disabled' && reqUserEmail) {
+          sendEmailSafe(reqUserEmail, `Your ${escapeHtml(req2.type)} request has been ${escapeHtml(finalStatus)}`,
+            emailWrap(`${icon} Request ${escapeHtml(finalStatus)}`,
+              `Your <b>${escapeHtml(req2.type)}</b> request has been <span style="color:${color};font-weight:700">${escapeHtml(finalStatus)}</span>.<br><br>
+               <b>Period:</b> ${escapeHtml(req2.start_date)} → ${escapeHtml(req2.end_date)}<br>
+               <b>Days:</b> ${escapeHtml(String(req2.days_count))}<br>
+               ${req2.review_comment ? `<b>Comment:</b> ${escapeHtml(req2.review_comment)}<br>` : ''}`));
+        }
+        if (pushCfg.push_notify_request_decision) {
+          sendPush(req2.user_id, `${icon} Request ${finalStatus}`, `${req2.type} · ${req2.start_date} → ${req2.end_date}`, '/');
+        }
       }
     }).catch(() => {});
   } catch (err) {
@@ -1162,8 +1253,8 @@ app.delete('/api/requests/:id', authenticateToken, async (req, res) => {
     const request = r.rows[0];
     const annualLeaveTypes = ['Annual Leave', 'Sick Leave', 'Compassionate'];
     let daysRestored = 0, recoveryRestored = 0;
-    // Only restore if Pending (Approved requests use POST /cancel route)
-    if (request.status === 'Pending' && Number(request.days_count) > 0) {
+    // Only restore if Pending or Pending L2 (Approved requests use POST /cancel route)
+    if ((request.status === 'Pending' || request.status === 'Pending L2') && Number(request.days_count) > 0) {
       if (annualLeaveTypes.includes(request.type)) {
         if (request.balance_source === 'recovery') {
           await client.query('UPDATE users SET recovery_balance = recovery_balance + $1 WHERE id=$2',
@@ -1357,6 +1448,22 @@ app.put('/api/timesheets/status', authenticateToken, async (req, res) => {
     );
     
     const row = result.rows[0];
+
+    // On submission: create workflow instance for routing
+    if (status === 'submitted') {
+      try {
+        const submitterRow = await pool.query('SELECT * FROM users WHERE id=$1', [userId]);
+        const submitter = submitterRow.rows[0];
+        if (submitter) {
+          const matchedWf = await findMatchingWorkflow(pool, 'timesheet', submitter, {});
+          if (matchedWf) {
+            const wfResult = await createWorkflowInstance(pool, matchedWf, 'timesheet', `ts:${userId}:${year}:${month}`, submitter.id, {});
+            await pool.query('UPDATE timesheet_status SET workflow_instance_id=$1 WHERE user_id=$2 AND year=$3 AND month=$4',
+              [wfResult.instanceId, userId, year, month]);
+          }
+        }
+      } catch (wfErr) { console.error('Timesheet workflow creation error (non-fatal):', wfErr); }
+    }
 
     // On approval: auto-fill missing weekend/holiday Site entries, then compute recovery
     let recoveryAccrued = 0;
@@ -2197,6 +2304,218 @@ app.put('/api/push/settings', authenticateToken, requireAdmin, async (req, res) 
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: 'Server error' }); }
 });
+
+// ===== WORKFLOW DESIGNER CRUD =====
+
+app.get('/api/workflows', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM workflow_definitions ORDER BY priority DESC, entity_type, name');
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Get workflows error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.post('/api/workflows', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { name, entity_type, target_dept, target_staff_type, target_activity_type, priority, steps, is_active } = req.body;
+    if (!name || !entity_type) return res.status(400).json({ error: 'name and entity_type are required' });
+    if (!Array.isArray(steps) || steps.length === 0 || steps.length > 5) return res.status(400).json({ error: 'steps must be an array of 1-5 items' });
+    const result = await pool.query(
+      `INSERT INTO workflow_definitions (name, entity_type, target_dept, target_staff_type, target_activity_type, priority, steps, is_active, created_by, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),NOW()) RETURNING *`,
+      [name, entity_type, target_dept || null, target_staff_type || null, target_activity_type || null, priority || 0, JSON.stringify(steps), is_active !== false, req.user.id]
+    );
+    logAudit(req.user.id, 'workflow_created', `Created workflow "${name}" (${entity_type})`);
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('Create workflow error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.put('/api/workflows/:id', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { name, entity_type, target_dept, target_staff_type, target_activity_type, priority, steps, is_active } = req.body;
+    if (!name || !entity_type) return res.status(400).json({ error: 'name and entity_type are required' });
+    if (!Array.isArray(steps) || steps.length === 0 || steps.length > 5) return res.status(400).json({ error: 'steps must be an array of 1-5 items' });
+    const result = await pool.query(
+      `UPDATE workflow_definitions SET name=$1, entity_type=$2, target_dept=$3, target_staff_type=$4, target_activity_type=$5, priority=$6, steps=$7, is_active=$8, updated_at=NOW()
+       WHERE id=$9 RETURNING *`,
+      [name, entity_type, target_dept || null, target_staff_type || null, target_activity_type || null, priority || 0, JSON.stringify(steps), is_active !== false, req.params.id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Workflow not found' });
+    logAudit(req.user.id, 'workflow_updated', `Updated workflow "${name}" (id=${req.params.id})`);
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Update workflow error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.delete('/api/workflows/:id', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    // Soft-delete: set is_active=false
+    const result = await pool.query('UPDATE workflow_definitions SET is_active=false, updated_at=NOW() WHERE id=$1 RETURNING *', [req.params.id]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Workflow not found' });
+    logAudit(req.user.id, 'workflow_deleted', `Deactivated workflow "${result.rows[0].name}" (id=${req.params.id})`);
+    res.json({ message: 'Workflow deactivated' });
+  } catch (err) {
+    console.error('Delete workflow error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ===== WORKFLOW ENGINE HELPERS =====
+
+// Find the best matching workflow definition for a given entity type and context
+async function findMatchingWorkflow(client, entityType, user, requestData) {
+  const rows = await client.query(
+    'SELECT * FROM workflow_definitions WHERE entity_type=$1 AND is_active=true ORDER BY priority DESC, id',
+    [entityType]
+  );
+  for (const wf of rows.rows) {
+    if (wf.target_dept && wf.target_dept !== user.dept) continue;
+    if (wf.target_staff_type && wf.target_staff_type !== user.type) continue;
+    if (wf.target_activity_type && wf.target_activity_type !== requestData.type) continue;
+    return wf;
+  }
+  return null; // no match — fallback to direct manager single-step
+}
+
+// Resolve the actual approver user(s) for a workflow step
+async function resolveStepApprovers(client, step, submitterId) {
+  switch (step.approver_type) {
+    case 'direct_manager': {
+      const r = await client.query('SELECT manager_id FROM users WHERE id=$1', [submitterId]);
+      return r.rows[0]?.manager_id ? [r.rows[0].manager_id] : [];
+    }
+    case 'functional_manager': {
+      const r = await client.query('SELECT functional_manager_id FROM users WHERE id=$1', [submitterId]);
+      return r.rows[0]?.functional_manager_id ? [r.rows[0].functional_manager_id] : [];
+    }
+    case 'specific_role': {
+      const r = await client.query('SELECT id FROM users WHERE role=$1 AND active=true', [step.approver_value]);
+      return r.rows.map(row => row.id);
+    }
+    case 'specific_user':
+      return step.approver_value ? [Number(step.approver_value)] : [];
+    default:
+      return [];
+  }
+}
+
+// Evaluate conditions for a step against request data
+function evaluateConditions(conditions, requestData) {
+  if (!conditions || conditions.length === 0) return true;
+  return conditions.every(c => {
+    const val = Number(requestData[c.field] || 0);
+    const target = Number(c.value);
+    switch (c.operator) {
+      case '==': return val === target;
+      case '!=': return val !== target;
+      case '>':  return val > target;
+      case '>=': return val >= target;
+      case '<':  return val < target;
+      case '<=': return val <= target;
+      default: return true;
+    }
+  });
+}
+
+// Create a workflow instance and its first approval step
+async function createWorkflowInstance(client, workflowDef, entityType, entityRef, submitterId, requestData) {
+  const instResult = await client.query(
+    `INSERT INTO workflow_instances (workflow_id, entity_type, entity_ref, status, created_at, updated_at)
+     VALUES ($1,$2,$3,'in_progress',NOW(),NOW()) RETURNING *`,
+    [workflowDef.id, entityType, entityRef]
+  );
+  const instance = instResult.rows[0];
+  const steps = typeof workflowDef.steps === 'string' ? JSON.parse(workflowDef.steps) : workflowDef.steps;
+
+  // Find first step (lowest order)
+  const firstSteps = steps.filter(s => s.order === Math.min(...steps.map(x => x.order)));
+  const matchedStep = firstSteps.find(s => evaluateConditions(s.conditions, requestData)) || firstSteps[0];
+
+  const approverIds = await resolveStepApprovers(client, matchedStep, submitterId);
+  const approverId = approverIds[0] || null;
+
+  await client.query(
+    `INSERT INTO workflow_approvals (instance_id, step_index, step_label, approver_id, status, created_at)
+     VALUES ($1,$2,$3,$4,'pending',NOW())`,
+    [instance.id, 0, matchedStep.label, approverId]
+  );
+
+  return { instanceId: instance.id, approverIds, stepLabel: matchedStep.label, totalSteps: new Set(steps.map(s => s.order)).size };
+}
+
+// Advance a workflow instance after an approval/rejection
+async function advanceWorkflow(client, instanceId, approverId, actionStatus, comment, requestData) {
+  // Mark current pending approval
+  await client.query(
+    `UPDATE workflow_approvals SET status=$1, comment=$2, approver_id=$3, actioned_at=NOW()
+     WHERE instance_id=$4 AND status='pending'`,
+    [actionStatus === 'Approved' ? 'approved' : 'rejected', comment, approverId, instanceId]
+  );
+
+  if (actionStatus === 'Rejected') {
+    await client.query(`UPDATE workflow_instances SET status='rejected', updated_at=NOW() WHERE id=$1`, [instanceId]);
+    return { finalStatus: 'Rejected', nextApproverIds: [] };
+  }
+
+  // Find the workflow definition and current step
+  const instRow = await client.query(
+    `SELECT wi.*, wd.steps FROM workflow_instances wi JOIN workflow_definitions wd ON wd.id=wi.workflow_id WHERE wi.id=$1`,
+    [instanceId]
+  );
+  const inst = instRow.rows[0];
+  const steps = typeof inst.steps === 'string' ? JSON.parse(inst.steps) : inst.steps;
+
+  // Get the last completed step's order
+  const completedApprovals = await client.query(
+    `SELECT step_index FROM workflow_approvals WHERE instance_id=$1 AND status='approved' ORDER BY step_index DESC LIMIT 1`,
+    [instanceId]
+  );
+  const currentStepIndex = completedApprovals.rows[0]?.step_index ?? 0;
+
+  // Find what order the current step had
+  const orders = [...new Set(steps.map(s => s.order))].sort((a, b) => a - b);
+  const currentOrder = orders[currentStepIndex] || orders[0];
+  const nextOrderIndex = orders.indexOf(currentOrder) + 1;
+
+  if (nextOrderIndex >= orders.length) {
+    // No more steps — workflow complete
+    await client.query(`UPDATE workflow_instances SET status='completed', updated_at=NOW() WHERE id=$1`, [instanceId]);
+    return { finalStatus: 'Approved', nextApproverIds: [] };
+  }
+
+  // Find next step matching conditions
+  const nextOrder = orders[nextOrderIndex];
+  const nextSteps = steps.filter(s => s.order === nextOrder);
+  const matchedNext = nextSteps.find(s => evaluateConditions(s.conditions, requestData)) || nextSteps[0];
+
+  // Get submitter ID from entity_ref
+  const entityRef = inst.entity_ref;
+  let submitterId = null;
+  if (entityRef.startsWith('request:')) {
+    const reqRow = await client.query('SELECT user_id FROM requests WHERE id=$1', [entityRef.split(':')[1]]);
+    submitterId = reqRow.rows[0]?.user_id;
+  } else if (entityRef.startsWith('ts:')) {
+    submitterId = Number(entityRef.split(':')[1]);
+  }
+
+  const nextApproverIds = submitterId ? await resolveStepApprovers(client, matchedNext, submitterId) : [];
+  const nextApproverId = nextApproverIds[0] || null;
+
+  await client.query(
+    `INSERT INTO workflow_approvals (instance_id, step_index, step_label, approver_id, status, created_at)
+     VALUES ($1,$2,$3,$4,'pending',NOW())`,
+    [instanceId, nextOrderIndex, matchedNext.label, nextApproverId]
+  );
+
+  return { finalStatus: 'Pending', nextApproverIds, stepLabel: matchedNext.label };
+}
 
 // ===== ENTRA ID SSO =====
 

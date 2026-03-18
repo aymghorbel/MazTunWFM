@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from "recharts";
-import { authAPI, usersAPI, projectsAPI, requestsAPI, timesheetAPI, rolesAPI, payrollAPI, activitiesAPI, rotationAPI, companyAPI, totpAPI, auditAPI, emailAPI, pushAPI, holidaysAPI, companyEntitiesAPI, reportsAPI } from "./api";
+import { authAPI, usersAPI, projectsAPI, requestsAPI, timesheetAPI, rolesAPI, payrollAPI, activitiesAPI, rotationAPI, companyAPI, totpAPI, auditAPI, emailAPI, pushAPI, holidaysAPI, companyEntitiesAPI, reportsAPI, workflowsAPI } from "./api";
 import { getMsalInstance, loginRequest, ssoEnabled } from "./msalConfig";
 
 // ─── Export helpers ────────────────────────────────────────────────────────────
@@ -412,8 +412,9 @@ const RoleBadge = ({role,roles}) => {
   return <span className="badge" style={{background:r.bg,color:r.color}}>{r.label}</span>;
 };
 const StatusBadge = ({status}) => {
-  const m={Approved:"bgr",Pending:"bam",Rejected:"bre"};
-  return <span className={`badge ${m[status]||"bgr2"}`}>{status}</span>;
+  const m={Approved:"bgr",Pending:"bam","Pending L2":"bam",Rejected:"bre"};
+  const label=status==="Pending L2"?"Pending L2":status;
+  return <span className={`badge ${m[status]||"bgr2"}`} style={status==="Pending L2"?{background:"#ede9fe",color:"#7c3aed"}:{}}>{label}</span>;
 };
 const TSStatusBadge = ({status}) => {
   const m={draft:["bgr2","Draft"],submitted:["bam","Submitted"],approved:["bgr","Approved"],rejected:["bre","Rejected"]};
@@ -1489,28 +1490,45 @@ function ApprovalsView({user,requests,setRequests,users,setUsers,roles,tsStatuse
   const isCountryManager=user.role==="country_manager";
   const teamIds=isAd?users.map(u=>u.id):users.filter(u=>u.manager===user.id).map(u=>u.id);
   const canSeeRequest=(r)=>{
-    if(r.type==="Extra Days OnSite"){
+    if(isAd) return true;
+    // Workflow-driven: if user is the current approver, they can see it
+    if(r.currentApproverId===user.id) return true;
+    // Managers always see their team's requests
+    if(teamIds.includes(r.userId)) return true;
+    // Legacy: L2 role-based approvers
+    if(r.type==="Extra Days OnSite"&&r.status==="Pending L2"){
       const days=Number(r.daysCount);
-      if(isAd) return true;
       if(isCountryManager&&days>3) return true;
       if(isOpsManager&&days===3) return true;
-      if(!isOpsManager&&!isCountryManager&&days<3&&teamIds.includes(r.userId)) return true;
+    }
+    return false;
+  };
+  const canApproveRequest=(r)=>{
+    if(isAd&&(r.status==="Pending"||r.status==="Pending L2")) return true;
+    // Workflow-driven: check if current user is the designated approver
+    if(r.currentApproverId) return r.currentApproverId===user.id;
+    // Legacy fallback (requests without workflow)
+    if(r.type==="Extra Days OnSite"){
+      const days=Number(r.daysCount);
+      if(r.status==="Pending"&&teamIds.includes(r.userId)) return true;
+      if(r.status==="Pending L2"&&isCountryManager&&days>3) return true;
+      if(r.status==="Pending L2"&&isOpsManager&&days===3) return true;
       return false;
     }
-    return teamIds.includes(r.userId);
+    return r.status==="Pending"&&teamIds.includes(r.userId);
   };
-  const pendReq=requests.filter(r=>r.status==="Pending"&&canSeeRequest(r));
+  const pendReq=requests.filter(r=>(r.status==="Pending"||r.status==="Pending L2")&&canApproveRequest(r));
   const allTeamReq=requests.filter(r=>canSeeRequest(r));
   const icos={"Annual Leave":"🌴","Sick Leave":"🏥","Mission":"✈️","Mission Office":"✈️","Training":"📚","Remote Work":"🏠","Night Shift":"🌙","Overtime":"⏰","Extra Days":"💼","Compassionate":"💙","Recovery Leave":"🔄","Temporary Authorization":"🕐"};
   const nm=id=>users.find(u=>u.id===id)?.name||"Unknown";
   async function approve(id){
     try{
       const resp=await requestsAPI.update(id,{status:"Approved",reviewComment:""});
-      setRequests(p=>p.map(r=>r.id===id?{...r,status:"Approved"}:r));
+      const newStatus=resp.status||"Approved";
+      setRequests(p=>p.map(r=>r.id===id?{...r,status:newStatus,approvalStep:resp.approval_step||r.approvalStep,step1ReviewedBy:resp.step1_reviewed_by||r.step1ReviewedBy,step1ReviewedAt:resp.step1_reviewed_at?.slice(0,10)||r.step1ReviewedAt,currentApproverId:null}:r));
       if(resp.affectedMonths?.length>0){
         setTimesheetData(prev=>{const n={...prev};resp.affectedMonths.forEach(k=>delete n[k]);return n;});
       }
-      // Balance was deducted at submission — no UI balance change on approval
     }catch(err){toast('Failed to approve: '+err.message);}
   }
   async function reject(id){
@@ -1689,7 +1707,11 @@ function ApprovalsView({user,requests,setRequests,users,setUsers,roles,tsStatuse
               </div>
               <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6}}>
                 <StatusBadge status={r.status}/>
-                {r.status==="Pending"&&(
+                {r.totalSteps>1&&<span style={{fontSize:10,color:r.status==="Pending L2"?"#7c3aed":"var(--t3)",fontWeight:600}}>
+                  Step {r.approvalStep}/{r.totalSteps}{r.status==="Pending L2"?" · L2 Review":""}
+                </span>}
+                {r.step1ReviewedBy&&<span style={{fontSize:10,color:"#059669"}}>✓ Mgr: {nm(r.step1ReviewedBy)}{r.step1ReviewedAt?" · "+r.step1ReviewedAt:""}</span>}
+                {canApproveRequest(r)&&(
                   <div style={{display:"flex",gap:4}}><button className="btn bs bxs" onClick={()=>approve(r.id)}>✓</button><button className="btn bd bxs" onClick={()=>reject(r.id)}>✗</button></div>
                 )}
               </div>
@@ -1856,7 +1878,7 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
   const annualRem=Math.max(0,Number(user.leaveBalance)-Number(user.usedLeave));
   const availForType=(form.type==="Recovery Leave"||(["Annual Leave","Sick Leave","Compassionate"].includes(form.type)&&form.balanceSource==="recovery"))?Number(user.recoveryBalance||0):annualRem;
   const myR=requests.filter(r=>r.userId===user.id);
-  const histR=myR.filter(r=>r.status!=="Pending").sort((a,b)=>(b.start||"").localeCompare(a.start||""));
+  const histR=myR.filter(r=>r.status!=="Pending"&&r.status!=="Pending L2").sort((a,b)=>(b.start||"").localeCompare(a.start||""));
   const filtHistR=histFilter==="all"?histR:histR.filter(r=>r.status===histFilter);
 
   // Team: direct reports + peers (same line manager)
@@ -1994,9 +2016,10 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
             <div className="rc" key={r.id}>
               <div className="ri" style={{background:r.type==="Annual Leave"?"#d1fae5":r.type==="Sick Leave"?"#fee2e2":"#f0f9ff"}}>{icos[r.type]||"📋"}</div>
               <div style={{flex:1}}><div style={{fontWeight:700,fontSize:13}}>{r.type}{r.balanceSource==="recovery"&&<span style={{marginLeft:5,fontSize:10,color:"var(--v)",fontWeight:400}}>🔄 Recovery</span>}</div><div style={{fontSize:11,color:"var(--t3)",fontFamily:"'JetBrains Mono',monospace"}}>{r.type==="Temporary Authorization"?`${r.start} · ${r.authStartTime||""}→${r.authEndTime||""} (${r.durationHours}h)`:`${r.start}${r.halfDayStart?" "+r.halfDayStart:""}${r.end!==r.start?" → "+r.end+(r.halfDayEnd?" "+r.halfDayEnd:""):""} · ${r.daysCount===0.5?"½ day":r.daysCount+"d"}`}{r.comment?" · "+r.comment:""}</div></div>
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",justifyContent:"flex-end"}}>
                 <StatusBadge status={r.status}/>
-                {r.status==="Pending"&&<button className="btn bo bxs" onClick={()=>doCancelRequest(r.id,false,"")}>Cancel</button>}
+                {r.totalSteps>1&&<span style={{fontSize:10,color:r.status==="Pending L2"?"#7c3aed":"var(--t3)",fontWeight:600}}>Step {r.approvalStep}/{r.totalSteps}</span>}
+                {(r.status==="Pending"||r.status==="Pending L2")&&<button className="btn bo bxs" onClick={()=>doCancelRequest(r.id,false,"")}>Cancel</button>}
                 {r.status==="Approved"&&<button className="btn bd bxs" onClick={()=>{setCancelModal({id:r.id,type:r.type,start:r.start,end:r.end,daysCount:r.daysCount,durationHours:r.durationHours});setCancelReason("");}}>Cancel</button>}
               </div>
             </div>
@@ -3302,7 +3325,7 @@ function AllocationReport() {
   );
 }
 
-function Settings({user,users,setUsers,projects,setProjects,roles,setRoles,activities,setActivities,holidays,setHolidays,entities,setEntities,onResetPwd}) {
+function Settings({user,users,setUsers,projects,setProjects,roles,setRoles,activities,setActivities,holidays,setHolidays,entities,setEntities,workflows,setWorkflows,onResetPwd}) {
   const [tab,setTab]=useState("users");
   const [editUser,setEditUser]=useState(null);
   const [showAdd,setShowAdd]=useState(false);
@@ -3322,6 +3345,39 @@ function Settings({user,users,setUsers,projects,setProjects,roles,setRoles,activ
 
   const isAd=hasPerm(roles,user.role,"all");
   const depts=useMemo(()=>[...new Set(users.map(u=>u.dept).filter(Boolean))].sort(),[users]);
+
+  // Workflow designer state
+  const [wfModal,setWfModal]=useState(null); // null | "add" | workflow object
+  const BLANK_WF={name:'',entityType:'leave',targetDept:null,targetStaffType:null,targetActivityType:null,priority:0,isActive:true,steps:[]};
+  const BLANK_STEP={id:Date.now().toString(36),order:1,label:'',approver_type:'direct_manager',approver_value:null,conditions:[]};
+  const [wfForm,setWfForm]=useState(BLANK_WF);
+
+  async function saveWorkflow(){
+    try{
+      const steps=wfForm.steps.map((s,i)=>({...s,order:i+1,id:s.id||Date.now().toString(36)+i}));
+      const payload={name:wfForm.name,entity_type:wfForm.entityType,target_dept:wfForm.targetDept||null,target_staff_type:wfForm.targetStaffType||null,target_activity_type:wfForm.targetActivityType||null,priority:Number(wfForm.priority)||0,is_active:wfForm.isActive,steps};
+      if(wfModal==="add"){
+        const created=await workflowsAPI.create(payload);
+        const mapped={id:created.id,name:created.name,entityType:created.entity_type,targetDept:created.target_dept,targetStaffType:created.target_staff_type,targetActivityType:created.target_activity_type,priority:created.priority||0,isActive:created.is_active,steps:typeof created.steps==='string'?JSON.parse(created.steps):created.steps,createdAt:created.created_at?.slice(0,10)};
+        setWorkflows(p=>[...p,mapped]);
+      }else{
+        const updated=await workflowsAPI.update(wfModal.id,payload);
+        const mapped={id:updated.id,name:updated.name,entityType:updated.entity_type,targetDept:updated.target_dept,targetStaffType:updated.target_staff_type,targetActivityType:updated.target_activity_type,priority:updated.priority||0,isActive:updated.is_active,steps:typeof updated.steps==='string'?JSON.parse(updated.steps):updated.steps,createdAt:updated.created_at?.slice(0,10)};
+        setWorkflows(p=>p.map(w=>w.id===mapped.id?mapped:w));
+      }
+      setWfModal(null);
+    }catch(err){toast('Failed: '+err.message);}
+  }
+  async function deleteWorkflow(id){
+    try{await workflowsAPI.delete(id);setWorkflows(p=>p.filter(w=>w.id!==id));}catch(err){toast('Failed: '+err.message);}
+  }
+  function addWfStep(){setWfForm(f=>({...f,steps:[...f.steps,{...BLANK_STEP,id:Date.now().toString(36),order:f.steps.length+1}]}));}
+  function removeWfStep(idx){setWfForm(f=>({...f,steps:f.steps.filter((_,i)=>i!==idx)}));}
+  function moveWfStep(idx,dir){setWfForm(f=>{const s=[...f.steps];const ni=idx+dir;if(ni<0||ni>=s.length)return f;[s[idx],s[ni]]=[s[ni],s[idx]];return{...f,steps:s};});}
+  function updateWfStep(idx,field,val){setWfForm(f=>({...f,steps:f.steps.map((s,i)=>i===idx?{...s,[field]:val}:s)}));}
+  function addStepCondition(idx){setWfForm(f=>({...f,steps:f.steps.map((s,i)=>i===idx?{...s,conditions:[...(s.conditions||[]),{field:'days_count',operator:'>=',value:3}]}:s)}));}
+  function removeStepCondition(sIdx,cIdx){setWfForm(f=>({...f,steps:f.steps.map((s,i)=>i===sIdx?{...s,conditions:s.conditions.filter((_,ci)=>ci!==cIdx)}:s)}));}
+  function updateStepCondition(sIdx,cIdx,field,val){setWfForm(f=>({...f,steps:f.steps.map((s,i)=>i===sIdx?{...s,conditions:s.conditions.map((c,ci)=>ci===cIdx?{...c,[field]:val}:c)}:s)}));}
 
   // ── CSV Import state ──
   const [importModal,setImportModal]=useState(null); // null | "users" | "projects"
@@ -3560,7 +3616,7 @@ function Settings({user,users,setUsers,projects,setProjects,roles,setRoles,activ
   const CP=({value,onChange})=>(<div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:4}}>{COLORS.map(c=><div key={c} className={`color-sw${value===c?" sel":""}`} style={{background:c}} onClick={()=>onChange(c)}/>)}</div>);
   return (
     <div>
-      <div className="tabs">{[["users","👥 Users & Roles"],["projects","📁 Projects"],["entities","🏢 Entities"],["activities","🎯 Activities"],["holidays","📅 Holidays"],["rbac","🔐 Permissions & Roles"],["system","⚙️ System"]].map(([k,l])=>(<div key={k} className={`tab ${tab===k?"active":""}`} onClick={()=>setTab(k)}>{l}</div>))}</div>
+      <div className="tabs">{[["users","👥 Users & Roles"],["projects","📁 Projects"],["entities","🏢 Entities"],["activities","🎯 Activities"],["holidays","📅 Holidays"],["workflows","🔄 Workflows"],["rbac","🔐 Permissions & Roles"],["system","⚙️ System"]].map(([k,l])=>(<div key={k} className={`tab ${tab===k?"active":""}`} onClick={()=>setTab(k)}>{l}</div>))}</div>
       {tab==="users"&&(<div><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}><div><div style={{fontWeight:700,fontSize:15}}>User Management</div><div style={{fontSize:12,color:"var(--t3)"}}>{users.filter(u=>u.active).length} active</div></div><div style={{display:"flex",gap:8}}><button className="btn bg2 bsm" onClick={()=>downloadTemplate('users')}>⬇ Template</button><label className="btn bg2 bsm" style={{cursor:"pointer",margin:0}}><input type="file" accept=".csv,.xlsx" style={{display:"none"}} onChange={e=>{handleImportFile(e,'users');e.target.value='';}} />📥 Import CSV</label><button className="btn bp bsm" onClick={()=>setShowAdd(true)}>+ Add User</button></div></div>
         <div className="tw"><table className="tbl"><thead><tr><th>User</th><th>Role</th><th>Type</th><th>Dept</th><th>Manager</th><th>Balances</th><th>Active</th><th>2FA</th><th>Actions</th></tr></thead><tbody>{users.map(u=>(<tr key={u.id}><td><div style={{display:"flex",alignItems:"center",gap:9}}><div className="av" style={{background:aColor(u.id)}}>{initials(u.name)}</div><div><div style={{fontWeight:700,fontSize:13}}>{u.name}</div><div style={{fontSize:11,color:"var(--t3)",fontFamily:"'JetBrains Mono',monospace"}}>{u.email}</div></div></div></td><td><select className="isel2" value={u.role} onChange={e=>setUsers(p=>p.map(x=>x.id===u.id?{...x,role:e.target.value}:x))}>{Object.entries(roles).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select></td><td><TypeBadge type={u.type}/></td><td style={{fontSize:12,color:"var(--t2)"}}>{u.dept}</td><td style={{fontSize:12,color:"var(--t3)"}}>{users.find(x=>x.id===u.manager)?.name||"—"}</td><td><div style={{display:"flex",flexDirection:"column",gap:3}}><div style={{display:"flex",alignItems:"center",gap:6}}><div className="prog" style={{width:48}}><div className="prog-f" style={{width:`${Math.round((u.usedLeave/u.leaveBalance)*100)}%`,background:u.usedLeave/u.leaveBalance>0.8?"var(--re)":"var(--gr)"}}/></div><span style={{fontSize:11,fontFamily:"'JetBrains Mono',monospace",color:"var(--t3)"}} title="Annual Leave remaining">{u.leaveBalance-u.usedLeave}d AL</span></div>{(u.recoveryBalance||0)>0&&<span style={{fontSize:10,color:"var(--v)",fontFamily:"'JetBrains Mono',monospace"}}>🔄 {u.recoveryBalance}d</span>}</div></td><td><label className="sw"><input type="checkbox" checked={u.active} onChange={()=>toggleU(u.id)}/><span className="sldr"/></label></td><td>{u.totpEnabled?<span className="badge bgr" style={{fontSize:10}}>🔒 On</span>:<span className="badge bgr2" style={{fontSize:10}}>Off</span>}</td><td><div style={{display:"flex",gap:4}}><button className="btn bg2 bxs" onClick={()=>setEditUser({...u})}>✏️</button>{onResetPwd&&<button className="btn bg2 bxs" title="Reset password" onClick={()=>onResetPwd(u.id)}>🔑</button>}{u.totpEnabled&&<button className="btn bg2 bxs" title="Reset 2FA" onClick={()=>resetMFA(u.id)}>🔓</button>}<button className="btn bg2 bxs" onClick={()=>delUser(u.id)}>🗑</button></div></td></tr>))}</tbody></table></div>
       </div>)}
@@ -3670,6 +3726,145 @@ function Settings({user,users,setUsers,projects,setProjects,roles,setRoles,activ
               <div className="md-footer">
                 <button className="btn bo" onClick={()=>setHolModal(null)}>Cancel</button>
                 <button className="btn bp" onClick={holModal==="add"?addHoliday:saveHoliday}>{holModal==="add"?"Add":"Save"}</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>)}
+      {tab==="workflows"&&(<div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <div><div style={{fontWeight:700,fontSize:15}}>Approval Workflows</div><div style={{fontSize:12,color:"var(--t3)"}}>{(workflows||[]).filter(w=>w.isActive).length} active · {(workflows||[]).filter(w=>!w.isActive).length} inactive</div></div>
+          <button className="btn bp bsm" onClick={()=>{setWfForm({...BLANK_WF,steps:[{...BLANK_STEP}]});setWfModal("add");}}>+ Add Workflow</button>
+        </div>
+        <div className="tw"><table className="tbl"><thead><tr><th>Name</th><th>Trigger</th><th>Target</th><th>Steps</th><th>Priority</th><th>Active</th><th>Actions</th></tr></thead><tbody>
+          {(workflows||[]).map(w=>(
+            <tr key={w.id}>
+              <td style={{fontWeight:600}}>{w.name}</td>
+              <td><span className="badge bgr2" style={{fontSize:10}}>{w.entityType==='timesheet'?'Timesheet':w.entityType==='leave'?'Request/Leave':'Temp Auth'}</span></td>
+              <td style={{fontSize:11,color:"var(--t3)"}}>
+                {w.targetStaffType&&<span className="badge bsk" style={{fontSize:9,marginRight:4}}>{w.targetStaffType}</span>}
+                {w.targetDept&&<span style={{marginRight:4}}>{w.targetDept}</span>}
+                {w.targetActivityType&&<span className="badge bv" style={{fontSize:9}}>{w.targetActivityType}</span>}
+                {!w.targetStaffType&&!w.targetDept&&!w.targetActivityType&&<span style={{color:"var(--t3)"}}>All</span>}
+              </td>
+              <td><span className="badge bgr2" style={{fontSize:10}}>{(w.steps||[]).length} step{(w.steps||[]).length!==1?"s":""}</span></td>
+              <td style={{fontSize:12,fontFamily:"'JetBrains Mono',monospace",color:"var(--t3)"}}>{w.priority}</td>
+              <td><label className="sw"><input type="checkbox" checked={w.isActive} onChange={async()=>{try{const updated=await workflowsAPI.update(w.id,{name:w.name,entity_type:w.entityType,target_dept:w.targetDept,target_staff_type:w.targetStaffType,target_activity_type:w.targetActivityType,priority:w.priority,steps:w.steps,is_active:!w.isActive});setWorkflows(p=>p.map(x=>x.id===w.id?{...x,isActive:!x.isActive}:x));}catch(err){toast('Failed: '+err.message);}}}/><span className="sldr"/></label></td>
+              <td><div style={{display:"flex",gap:4}}>
+                <button className="btn bg2 bxs" onClick={()=>{setWfForm({name:w.name,entityType:w.entityType,targetDept:w.targetDept,targetStaffType:w.targetStaffType,targetActivityType:w.targetActivityType,priority:w.priority,isActive:w.isActive,steps:[...(w.steps||[])]});setWfModal(w);}}>✏️</button>
+                <button className="btn bd bxs" onClick={()=>deleteWorkflow(w.id)}>🗑</button>
+              </div></td>
+            </tr>
+          ))}
+        </tbody></table></div>
+        {wfModal&&(
+          <div className="mo" onClick={e=>e.target.className==="mo"&&setWfModal(null)}>
+            <div className="md" style={{maxWidth:720,width:"95vw"}}>
+              <div className="md-title">{wfModal==="add"?"Add Workflow":`Edit — ${wfModal.name}`}</div>
+              <div className="fg" style={{maxHeight:"65vh",overflow:"auto"}}>
+                <div className="fgrp"><label className="flbl">Name</label><input className="fi" value={wfForm.name} onChange={e=>setWfForm(f=>({...f,name:e.target.value}))}/></div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                  <div className="fgrp"><label className="flbl">Entity Type</label>
+                    <select className="fsel" value={wfForm.entityType} onChange={e=>setWfForm(f=>({...f,entityType:e.target.value}))}>
+                      <option value="leave">Request / Leave</option>
+                      <option value="timesheet">Timesheet</option>
+                      <option value="temp_auth">Temporary Authorization</option>
+                    </select>
+                  </div>
+                  <div className="fgrp"><label className="flbl">Priority</label><input className="fi" type="number" value={wfForm.priority} onChange={e=>setWfForm(f=>({...f,priority:Number(e.target.value)}))}/><div style={{fontSize:10,color:"var(--t3)",marginTop:2}}>Higher = matched first</div></div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
+                  <div className="fgrp"><label className="flbl">Staff Type</label>
+                    <select className="fsel" value={wfForm.targetStaffType||''} onChange={e=>setWfForm(f=>({...f,targetStaffType:e.target.value||null}))}>
+                      <option value="">All</option><option value="field">Field</option><option value="office">Office</option>
+                    </select>
+                  </div>
+                  <div className="fgrp"><label className="flbl">Department</label>
+                    <select className="fsel" value={wfForm.targetDept||''} onChange={e=>setWfForm(f=>({...f,targetDept:e.target.value||null}))}>
+                      <option value="">All departments</option>{depts.map(d=><option key={d} value={d}>{d}</option>)}
+                    </select>
+                  </div>
+                  <div className="fgrp"><label className="flbl">Activity / Request Type</label>
+                    <select className="fsel" value={wfForm.targetActivityType||''} onChange={e=>setWfForm(f=>({...f,targetActivityType:e.target.value||null}))}>
+                      <option value="">All types</option>{activities.filter(a=>a.active).map(a=><option key={a.id} value={a.name}>{a.name}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div className="fgrp"><label className="flbl">Active</label>
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginTop:6}}>
+                    <label className="sw"><input type="checkbox" checked={wfForm.isActive} onChange={e=>setWfForm(f=>({...f,isActive:e.target.checked}))}/><span className="sldr"/></label>
+                    <span style={{fontSize:13,color:"var(--t2)"}}>{wfForm.isActive?"Active":"Inactive"}</span>
+                  </div>
+                </div>
+                <div style={{borderTop:"1px solid var(--b)",paddingTop:14,marginTop:8}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                    <div style={{fontWeight:700,fontSize:14}}>Approval Steps</div>
+                    <button className="btn bg2 bsm" disabled={wfForm.steps.length>=5} onClick={addWfStep}>+ Add Step</button>
+                  </div>
+                  {wfForm.steps.length===0&&<div style={{fontSize:12,color:"var(--t3)",padding:16,textAlign:"center",background:"var(--bg2)",borderRadius:8}}>No steps yet. Add at least one approval step.</div>}
+                  {wfForm.steps.map((step,idx)=>(
+                    <div key={step.id||idx} style={{border:"1px solid var(--b)",borderRadius:8,padding:12,marginBottom:8,background:"var(--bg2)"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                        <span style={{fontSize:12,fontWeight:700,color:"var(--v)"}}>Step {idx+1}</span>
+                        <div style={{display:"flex",gap:4}}>
+                          <button className="btn bg2 bxs" disabled={idx===0} onClick={()=>moveWfStep(idx,-1)}>↑</button>
+                          <button className="btn bg2 bxs" disabled={idx===wfForm.steps.length-1} onClick={()=>moveWfStep(idx,1)}>↓</button>
+                          <button className="btn bd bxs" onClick={()=>removeWfStep(idx)}>✕</button>
+                        </div>
+                      </div>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                        <div className="fgrp"><label className="flbl">Label</label><input className="fi" value={step.label} placeholder="e.g. Manager Approval" onChange={e=>updateWfStep(idx,'label',e.target.value)}/></div>
+                        <div className="fgrp"><label className="flbl">Approver Type</label>
+                          <select className="fsel" value={step.approver_type} onChange={e=>updateWfStep(idx,'approver_type',e.target.value)}>
+                            <option value="direct_manager">Direct Manager</option>
+                            <option value="functional_manager">Functional Manager</option>
+                            <option value="specific_role">Specific Role</option>
+                            <option value="specific_user">Specific User</option>
+                          </select>
+                        </div>
+                      </div>
+                      {step.approver_type==='specific_role'&&(
+                        <div className="fgrp"><label className="flbl">Role</label>
+                          <select className="fsel" value={step.approver_value||''} onChange={e=>updateWfStep(idx,'approver_value',e.target.value)}>
+                            <option value="">Select role...</option>
+                            {Object.entries(roles).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+                          </select>
+                        </div>
+                      )}
+                      {step.approver_type==='specific_user'&&(
+                        <div className="fgrp"><label className="flbl">User</label>
+                          <select className="fsel" value={step.approver_value||''} onChange={e=>updateWfStep(idx,'approver_value',e.target.value)}>
+                            <option value="">Select user...</option>
+                            {users.filter(u=>u.active).map(u=><option key={u.id} value={u.id}>{u.name} ({u.email})</option>)}
+                          </select>
+                        </div>
+                      )}
+                      <div style={{marginTop:6}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                          <span style={{fontSize:11,fontWeight:600,color:"var(--t3)"}}>Conditions</span>
+                          <button className="btn bg2 bxs" style={{fontSize:10}} onClick={()=>addStepCondition(idx)}>+ Condition</button>
+                        </div>
+                        {(step.conditions||[]).map((c,ci)=>(
+                          <div key={ci} style={{display:"flex",gap:6,alignItems:"center",marginTop:4}}>
+                            <select className="fsel" style={{flex:1,fontSize:11}} value={c.field} onChange={e=>updateStepCondition(idx,ci,'field',e.target.value)}>
+                              <option value="days_count">Days Count</option>
+                              <option value="duration_hours">Duration (hours)</option>
+                            </select>
+                            <select className="fsel" style={{width:60,fontSize:11}} value={c.operator} onChange={e=>updateStepCondition(idx,ci,'operator',e.target.value)}>
+                              <option value="==">=</option><option value="!=">≠</option><option value=">">&gt;</option><option value=">=">&ge;</option><option value="<">&lt;</option><option value="<=">&le;</option>
+                            </select>
+                            <input className="fi" type="number" style={{width:60,fontSize:11}} value={c.value} onChange={e=>updateStepCondition(idx,ci,'value',Number(e.target.value))}/>
+                            <button className="btn bd bxs" style={{fontSize:10}} onClick={()=>removeStepCondition(idx,ci)}>✕</button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="md-footer">
+                <button className="btn bo" onClick={()=>setWfModal(null)}>Cancel</button>
+                <button className="btn bp" disabled={!wfForm.name||wfForm.steps.length===0} onClick={saveWorkflow}>{wfModal==="add"?"Create Workflow":"Save"}</button>
               </div>
             </div>
           </div>
@@ -4061,6 +4256,7 @@ export default function App() {
   const [holidays,      setHolidays]      = useState([]);
   const [entities,      setEntities]      = useState([]);
   const [rotationPlans, setRotationPlans] = useState([]);
+  const [workflows,     setWorkflows]     = useState([]);
   const [companySetting,setCompanySetting]= useState({companyName:"MAZARINE",companySubtitle:"Energy Tunisia",logoBase64:null});
   const [timesheetData, setTimesheetData] = useState({});
   const [tsStatuses,    setTsStatuses]    = useState(INITIAL_TS_STATUS);
@@ -4092,7 +4288,7 @@ export default function App() {
     const loadData = async () => {
       setLoading(true);
       try {
-        const [usersData, projectsData, requestsData, rolesData, activitiesData, rotationsData, holidaysData, entitiesData] = await Promise.all([
+        const [usersData, projectsData, requestsData, rolesData, activitiesData, rotationsData, holidaysData, entitiesData, workflowsData] = await Promise.all([
           usersAPI.getAll(),
           projectsAPI.getAll(),
           requestsAPI.getAll(),
@@ -4100,7 +4296,8 @@ export default function App() {
           activitiesAPI.getAll(),
           rotationAPI.getAll(),
           holidaysAPI.getAll(),
-          companyEntitiesAPI.getAll()
+          companyEntitiesAPI.getAll(),
+          workflowsAPI.getAll().catch(() => [])
         ]);
         
         setUsers(usersData.map(u => ({
@@ -4154,7 +4351,14 @@ export default function App() {
           authEndTime: r.auth_end_time || null,
           createdAt: r.created_at?.slice(0,10) || null,
           reviewedAt: r.reviewed_at?.slice(0,10) || null,
-          reviewedBy: r.reviewed_by || null
+          reviewedBy: r.reviewed_by || null,
+          approvalStep: r.approval_step || 1,
+          totalSteps: r.total_steps || 1,
+          step1ReviewedBy: r.step1_reviewed_by || null,
+          step1ReviewedAt: r.step1_reviewed_at?.slice(0,10) || null,
+          step1Comment: r.step1_comment || null,
+          currentApproverId: r.current_approver_id || null,
+          workflowInstanceId: r.workflow_instance_id || null
         })));
         
         const rolesObj = {};
@@ -4182,6 +4386,12 @@ export default function App() {
         HOLIDAYS = mappedHolidays.map(h=>h.date);
         setHolidays(mappedHolidays);
         setEntities(entitiesData || []);
+        setWorkflows((workflowsData || []).map(w => ({
+          id: w.id, name: w.name, entityType: w.entity_type, targetDept: w.target_dept,
+          targetStaffType: w.target_staff_type, targetActivityType: w.target_activity_type,
+          priority: w.priority || 0, isActive: w.is_active, steps: typeof w.steps === 'string' ? JSON.parse(w.steps) : (w.steps || []),
+          createdAt: w.created_at?.slice(0,10) || null
+        })));
 
       } catch (err) {
         console.error('Failed to load data:', err);
@@ -4205,8 +4415,15 @@ export default function App() {
   const pendReq = useMemo(() => {
     if (!user) return 0;
     return requests.filter(r => {
+      if (r.status !== "Pending" && r.status !== "Pending L2") return false;
+      // Workflow-driven: check if current user is the designated approver
+      if (r.currentApproverId === user.id) return true;
+      // Admins see all pending
+      if (isAd) return true;
+      // Legacy: managers see their team's pending requests
       const emp = users.find(u => u.id === r.userId);
-      return r.status === "Pending" && emp && (emp.manager === user.id || isAd);
+      if (emp && r.status === "Pending" && emp.manager === user.id) return true;
+      return false;
     }).length;
   }, [requests, users, user, isAd]);
 
@@ -4512,7 +4729,7 @@ export default function App() {
                 {view==="approvals"  && canApp && <ApprovalsView user={user} requests={requests} setRequests={setRequests} users={users} setUsers={setUsers} roles={roles} tsStatuses={tsStatuses} setTsStatuses={setTsStatuses} timesheetData={timesheetData} setTimesheetData={setTimesheetData} projects={projects} activities={activities} rotations={rotationPlans}/>}
                 {view==="hr-report"  && hasHR  && <HRReport requests={requests} users={users} tsStatuses={tsStatuses} activities={activities}/>}
                 {view==="audit"      && (isAd||hasHR) && <AuditTrailView users={users}/>}
-                {view==="settings"   && isAd   && <Settings user={user} users={users} setUsers={setUsers} projects={projects} setProjects={setProjects} roles={roles} setRoles={setRoles} onResetPwd={adminResetPwd} activities={activities} setActivities={setActivities} holidays={holidays} setHolidays={setHolidays} entities={entities} setEntities={setEntities}/>}
+                {view==="settings"   && isAd   && <Settings user={user} users={users} setUsers={setUsers} projects={projects} setProjects={setProjects} roles={roles} setRoles={setRoles} onResetPwd={adminResetPwd} activities={activities} setActivities={setActivities} holidays={holidays} setHolidays={setHolidays} entities={entities} setEntities={setEntities} workflows={workflows} setWorkflows={setWorkflows}/>}
               </>
             )}
           </div>
