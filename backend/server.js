@@ -2710,6 +2710,10 @@ app.post('/api/exports/payroll', authenticateToken, requirePrivileged, async (re
 
 // ===== HEALTH CHECK =====
 
+app.get('/', (req, res) => {
+  res.json({ status: 'ok', service: 'MazTunWFM API' });
+});
+
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
