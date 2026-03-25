@@ -2714,13 +2714,15 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// ===== SERVE FRONTEND =====
+// ===== SERVE FRONTEND (only when build folder exists, e.g. Docker) =====
 
-app.use(express.static('build'));
-
-app.get('*', (req, res) => {
-  res.sendFile('build/index.html', { root: '.' });
-});
+const fs = require('fs');
+if (fs.existsSync('build/index.html')) {
+  app.use(express.static('build'));
+  app.get('*', (req, res) => {
+    res.sendFile('build/index.html', { root: '.' });
+  });
+}
 
 // ── Global error handler ─────────────────────────────────────────────────────
 // Catches errors passed via next(err) — returns a safe message without leaking internals
