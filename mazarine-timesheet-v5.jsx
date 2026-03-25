@@ -1219,7 +1219,7 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
                         <td style={{padding:"8px 6px",textAlign:"center"}} onClick={ev=>{ev.stopPropagation();canExpand&&toggleRow(e.id);}}>
                           {canExpand&&<span className={`exp-arrow${isOpen?" open":""}`}>▶</span>}
                         </td>
-                        <td style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,color:"var(--t3)"}}>{e.date}</td>
+                        <td style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,color:"#000"}}>{e.date}</td>
                         <td style={{fontWeight:700}}>{DS[new Date(e.date).getDay()]}</td>
                         {user.type==="field"&&<td><span className="badge bsk">ON</span></td>}
                         <td onClick={ev=>ev.stopPropagation()}>
@@ -1758,7 +1758,7 @@ function ApprovalsView({user,requests,setRequests,users,setUsers,roles,tsStatuse
                   <tbody>
                     {entries.map(e=>(
                       <tr key={e.id}>
-                        <td style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,color:"var(--t3)"}}>{e.date}</td>
+                        <td style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,color:"#000"}}>{e.date}</td>
                         <td style={{fontWeight:600,fontSize:12}}>{DS[new Date(e.date).getDay()]}</td>
                         <td><span className="badge bgr2" style={{fontSize:11}}>{e.activity}</span></td>
                         <td>
@@ -4661,7 +4661,7 @@ export default function App() {
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
-              <span className="topbar-date" style={{fontSize:12,color:"var(--t3)",fontFamily:"'JetBrains Mono',monospace"}}>
+              <span className="topbar-date" style={{fontSize:12,color:"#000",fontFamily:"'JetBrains Mono',monospace"}}>
                 {new Date().toLocaleDateString("en-GB",{weekday:"short",day:"2-digit",month:"short",year:"numeric"})}
               </span>
               {totalBadge > 0 && canApp && !isSA && (
