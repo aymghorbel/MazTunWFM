@@ -43,7 +43,7 @@ jobs:
           node-version: '22'
 
       - name: Install frontend dependencies
-        run: npm ci
+        run: npm install
 
       - name: Build React application
         run: npm run build
@@ -56,7 +56,7 @@ jobs:
       # ── Prepare backend with frontend build ───────────────────────────────
       - name: Install backend production dependencies
         working-directory: backend
-        run: npm ci --omit=dev
+        run: npm install --omit=dev
 
       - name: Copy frontend build into backend
         run: cp -r build backend/build
