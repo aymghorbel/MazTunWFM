@@ -100,20 +100,7 @@ const authLimiter = rateLimit({
 app.set('trust proxy', 1); // Trust first proxy hop (Docker / reverse proxy)
 app.use(helmet());
 
-// CORS: allow same-origin (no Origin header), configured origins, and the app's own URL
-const _allowedOrigins = (process.env.CORS_ORIGIN || '')
-  .split(',').map(s => s.trim()).filter(Boolean);
-if (process.env.WEBSITE_HOSTNAME) {
-  _allowedOrigins.push(`https://${process.env.WEBSITE_HOSTNAME}`);
-}
-if (!_allowedOrigins.length) _allowedOrigins.push('http://localhost:3000');
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin || _allowedOrigins.includes(origin)) return callback(null, true);
-    callback(new Error('Not allowed by CORS'));
-  },
-  credentials: true,
-}));
+app.use(cors({ origin: true, credentials: true }));
 
 app.use(express.json());
 
