@@ -94,6 +94,8 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many attempts, please try again later.' },
+  keyGenerator: (req) => req.ip?.replace(/:\d+$/, '') || req.ip || '127.0.0.1',
+  validate: { ip: false },
 });
 
 // Middleware
