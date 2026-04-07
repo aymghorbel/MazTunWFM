@@ -45,6 +45,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
+      - name: Copy main component to src/App.js
+        run: cp mazarine-timesheet-v5.jsx src/App.js
+
       - name: Build React application
         run: npm run build
         env:
