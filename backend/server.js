@@ -100,9 +100,13 @@ const authLimiter = rateLimit({
 app.set('trust proxy', 1); // Trust first proxy hop (Docker / reverse proxy)
 app.use(helmet());
 
-// Support comma-separated origins, e.g. "https://app.azurestaticapps.net,http://localhost:3005"
-const _allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3000')
+// CORS: allow same-origin (no Origin header), configured origins, and the app's own URL
+const _allowedOrigins = (process.env.CORS_ORIGIN || '')
   .split(',').map(s => s.trim()).filter(Boolean);
+if (process.env.WEBSITE_HOSTNAME) {
+  _allowedOrigins.push(`https://${process.env.WEBSITE_HOSTNAME}`);
+}
+if (!_allowedOrigins.length) _allowedOrigins.push('http://localhost:3000');
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin || _allowedOrigins.includes(origin)) return callback(null, true);
