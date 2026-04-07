@@ -947,7 +947,7 @@ async function resetTimesheetEntries(client, request, userType) {
 app.post('/api/requests', authenticateToken, async (req, res) => {
   const client = await pool.connect();
   try {
-    const { userId, type, start, end, comment, daysCount, durationHours, halfDayStart, halfDayEnd, balanceSource, authStartTime, authEndTime } = req.body;
+    const { userId, type, start, end, comment, daysCount, durationHours, halfDayStart, halfDayEnd, balanceSource, authStartTime, authEndTime, attachmentUrl } = req.body;
 
     // Block request if any covered month's timesheet is submitted/approved
     if (type !== 'Temporary Authorization') {
@@ -1029,10 +1029,10 @@ app.post('/api/requests', authenticateToken, async (req, res) => {
     }
 
     const result = await client.query(
-      `INSERT INTO requests (user_id, type, start_date, end_date, comment, days_count, duration_hours, half_day_start, half_day_end, balance_source, auth_start_time, auth_end_time, status, created_at, approval_step, total_steps, workflow_instance_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'Pending', NOW(), 1, $13, $14)
+      `INSERT INTO requests (user_id, type, start_date, end_date, comment, days_count, duration_hours, half_day_start, half_day_end, balance_source, auth_start_time, auth_end_time, status, created_at, approval_step, total_steps, workflow_instance_id, attachment_url)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'Pending', NOW(), 1, $13, $14, $15)
        RETURNING *`,
-      [userId, type, start, end, comment||null, daysCount, durationHours||null, halfDayStart||null, halfDayEnd||null, balanceSource||'annual', authStartTime||null, authEndTime||null, wfTotalSteps, wfInstanceId]
+      [userId, type, start, end, comment||null, daysCount, durationHours||null, halfDayStart||null, halfDayEnd||null, balanceSource||'annual', authStartTime||null, authEndTime||null, wfTotalSteps, wfInstanceId, attachmentUrl||null]
     );
 
     // Update workflow instance entity_ref with actual request ID
@@ -1802,6 +1802,36 @@ app.get('/api/reports/allocation', authenticateToken, requirePrivileged, async (
   }
 });
 
+// GET allocation detail per employee (which employees worked on which projects)
+app.get('/api/reports/allocation-detail', authenticateToken, requirePrivileged, async (req, res) => {
+  try {
+    const { year, month } = req.query;
+    const result = await pool.query(`
+      SELECT
+        u.id AS user_id, u.name AS user_name, u.dept, u.type AS user_type,
+        p.id AS project_id, p.code AS project_code, p.name AS project_name, p.type AS project_type,
+        COUNT(*)::int AS days_count,
+        ROUND(SUM((alloc->>'allocation')::float)::numeric, 2) AS total_alloc,
+        ROUND(SUM((alloc->>'allocation')::float * te.hours)::numeric, 1) AS total_hours
+      FROM timesheet_entries te
+      CROSS JOIN LATERAL jsonb_array_elements(te.allocations) AS alloc
+      JOIN timesheet_status ts
+        ON ts.user_id=te.user_id AND ts.year=te.year AND ts.month=te.month
+      JOIN users u ON u.id=te.user_id
+      JOIN projects p ON p.id=(alloc->>'projectId')::int
+      WHERE te.year=$1 AND te.month=$2
+        AND ts.status IN ('submitted','approved')
+        AND jsonb_array_length(te.allocations) > 0
+      GROUP BY u.id, u.name, u.dept, u.type, p.id, p.code, p.name, p.type
+      ORDER BY p.code, u.name
+    `, [year, month]);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Allocation detail error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // ===== PAYROLL SUMMARY =====
 
 app.get('/api/payroll-summary', authenticateToken, requirePrivileged, async (req, res) => {
@@ -2161,17 +2191,79 @@ app.get('/api/company-settings', async (req, res) => {
 });
 
 app.put('/api/company-settings', authenticateToken, requireSuperAdmin, async (req, res) => {
-  const { companyName, companySubtitle, logoBase64 } = req.body;
+  const { companyName, companySubtitle, logoBase64, pendingReminderDays } = req.body;
   try {
+    const sets = ['company_name=$1', 'company_subtitle=$2', 'logo_base64=$3'];
+    const vals = [companyName || 'MAZARINE', companySubtitle || '', logoBase64 ?? null];
+    if (pendingReminderDays !== undefined) {
+      sets.push(`pending_reminder_days=$${vals.length + 1}`);
+      vals.push(Math.max(0, Number(pendingReminderDays) || 3));
+    }
     const result = await pool.query(
-      `UPDATE company_settings SET company_name=$1, company_subtitle=$2, logo_base64=$3 WHERE id=1 RETURNING *`,
-      [companyName || 'MAZARINE', companySubtitle || '', logoBase64 ?? null]
+      `UPDATE company_settings SET ${sets.join(',')} WHERE id=1 RETURNING *`, vals
     );
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Update company settings error:', err);
     res.status(500).json({ error: 'Server error' });
   }
+});
+
+// PUT pending reminder days (admin can update)
+app.put('/api/company-settings/pending-reminder', authenticateToken, requireAdmin, async (req, res) => {
+  const days = Math.max(1, Number(req.body.pendingReminderDays) || 3);
+  try {
+    const result = await pool.query('UPDATE company_settings SET pending_reminder_days=$1 WHERE id=1 RETURNING pending_reminder_days', [days]);
+    res.json(result.rows[0]);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET stale pending requests (pending > X days based on company setting)
+app.get('/api/requests/stale-pending', authenticateToken, async (req, res) => {
+  try {
+    const cfg = (await pool.query('SELECT pending_reminder_days FROM company_settings WHERE id=1')).rows[0];
+    const days = cfg?.pending_reminder_days || 3;
+    const { rows } = await pool.query(
+      `SELECT r.*, u.name as user_name, u.email as user_email, u.dept as user_dept
+       FROM requests r JOIN users u ON r.user_id = u.id
+       WHERE r.status IN ('Pending','Pending L2')
+       AND r.created_at < NOW() - INTERVAL '1 day' * $1
+       ORDER BY r.created_at ASC`, [days]
+    );
+    res.json({ days, requests: rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST trigger reminder emails for stale pending requests
+app.post('/api/requests/send-stale-reminders', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const cfg = (await pool.query('SELECT pending_reminder_days FROM company_settings WHERE id=1')).rows[0];
+    const days = cfg?.pending_reminder_days || 3;
+    const { rows } = await pool.query(
+      `SELECT r.id, r.type, r.start_date, r.end_date, r.created_at, r.user_id,
+              u.name as user_name, u.manager_id,
+              m.name as manager_name, m.email as manager_email
+       FROM requests r
+       JOIN users u ON r.user_id = u.id
+       LEFT JOIN users m ON u.manager_id = m.id
+       WHERE r.status IN ('Pending','Pending L2')
+       AND r.created_at < NOW() - INTERVAL '1 day' * $1`, [days]
+    );
+    let sent = 0;
+    for (const r of rows) {
+      if (r.manager_email) {
+        const subject = `Reminder: Pending ${r.type} request from ${r.user_name} (${days}+ days)`;
+        const html = `<p>The following request has been pending for more than <b>${days} days</b>:</p>
+          <ul><li><b>Employee:</b> ${r.user_name}</li><li><b>Type:</b> ${r.type}</li>
+          <li><b>Period:</b> ${r.start_date} → ${r.end_date}</li>
+          <li><b>Submitted:</b> ${new Date(r.created_at).toLocaleDateString()}</li></ul>
+          <p>Please review and take action.</p>`;
+        await sendEmailSafe(r.manager_email, subject, html);
+        sent++;
+      }
+    }
+    res.json({ ok: true, staleCount: rows.length, remindersSent: sent });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ===== EMAIL SETTINGS =====
@@ -2716,6 +2808,134 @@ app.get('/', (req, res) => {
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// ── ERP Duty Rota: Roster CRUD ──────────────────────────────────────────────
+
+// GET all ERP roster members (joined with users table)
+app.get('/api/erp/roster', authenticateToken, async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT r.id, r.user_id, r.erp_role, r.notes,
+             u.name, u.email, u.dept, u.type, u.active
+      FROM erp_roster r JOIN users u ON r.user_id = u.id
+      ORDER BY u.name
+    `);
+    res.json(rows);
+  } catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
+});
+
+// POST add user to ERP roster
+app.post('/api/erp/roster', authenticateToken, async (req, res) => {
+  const { userId, erpRole, notes } = req.body;
+  if (!userId) return res.status(400).json({ error: 'userId required' });
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO erp_roster (user_id, erp_role, notes) VALUES ($1,$2,$3)
+       ON CONFLICT (user_id) DO UPDATE SET erp_role=EXCLUDED.erp_role, notes=EXCLUDED.notes
+       RETURNING *`,
+      [userId, erpRole || '', notes || '']
+    );
+    res.json(rows[0]);
+  } catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
+});
+
+// PUT update ERP roster entry
+app.put('/api/erp/roster/:userId', authenticateToken, async (req, res) => {
+  const { erpRole, notes } = req.body;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE erp_roster SET erp_role=$1, notes=$2 WHERE user_id=$3 RETURNING *`,
+      [erpRole || '', notes || '', req.params.userId]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json(rows[0]);
+  } catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
+});
+
+// DELETE remove user from ERP roster
+app.delete('/api/erp/roster/:userId', authenticateToken, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM erp_roster WHERE user_id=$1', [req.params.userId]);
+    res.json({ ok: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
+});
+
+// ── ERP Duty Rota: Weeks CRUD ───────────────────────────────────────────────
+
+// GET all rotation weeks
+app.get('/api/erp/weeks', authenticateToken, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM erp_weeks ORDER BY start_date');
+    res.json(rows);
+  } catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
+});
+
+// POST create rotation week
+app.post('/api/erp/weeks', authenticateToken, async (req, res) => {
+  const { label, start, end, crisisCoord, drillingCrisisCoord, cpfContact, drillingContact, media } = req.body;
+  if (!label || !start || !end) return res.status(400).json({ error: 'label, start, end required' });
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO erp_weeks (label, start_date, end_date, crisis_coord, drilling_crisis_coord, cpf_contact, drilling_contact, media)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [label, start, end, crisisCoord||null, drillingCrisisCoord||null, cpfContact||null, drillingContact||null, media||null]
+    );
+    res.json(rows[0]);
+  } catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
+});
+
+// PUT update rotation week
+app.put('/api/erp/weeks/:id', authenticateToken, async (req, res) => {
+  const { label, start, end, crisisCoord, drillingCrisisCoord, cpfContact, drillingContact, media } = req.body;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE erp_weeks SET label=$1, start_date=$2, end_date=$3, crisis_coord=$4, drilling_crisis_coord=$5,
+       cpf_contact=$6, drilling_contact=$7, media=$8 WHERE id=$9 RETURNING *`,
+      [label, start, end, crisisCoord||null, drillingCrisisCoord||null, cpfContact||null, drillingContact||null, media||null, req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json(rows[0]);
+  } catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
+});
+
+// DELETE rotation week
+app.delete('/api/erp/weeks/:id', authenticateToken, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM erp_weeks WHERE id=$1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
+});
+
+// ── ERP Duty Rota: Notification log ─────────────────────────────────────────
+
+// GET notification history
+app.get('/api/erp/notifications', authenticateToken, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM erp_notifications ORDER BY created_at DESC LIMIT 100');
+    res.json(rows);
+  } catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
+});
+
+// ── ERP Duty Rota: notification dispatch ────────────────────────────────────
+app.post('/api/send-notification', authenticateToken, async (req, res) => {
+  const { type, channel, recipients, subject, body } = req.body;
+  if (!recipients || !recipients.length) return res.status(400).json({ error: 'No recipients' });
+  console.log(`[ERP Notify] type=${type} channel=${channel} recipients=${recipients.length} subject="${subject}"`);
+  // Email dispatch via existing sendEmailSafe helper
+  if (channel === 'email' || channel === 'all') {
+    for (const r of recipients.filter(x => x.email)) {
+      await sendEmailSafe(r.email, subject, `<pre>${body}</pre>`);
+    }
+  }
+  // Log to database
+  try {
+    await pool.query(
+      `INSERT INTO erp_notifications (subject, channel, recipient_count, status, is_emergency, sent_by) VALUES ($1,$2,$3,$4,$5,$6)`,
+      [subject, channel, recipients.length, 'sent', req.body.isEmergency || false, req.user?.id || null]
+    );
+  } catch (logErr) { console.error('[ERP Notify] log error:', logErr.message); }
+  res.json({ ok: true, sent: recipients.length, channel });
 });
 
 // ===== SERVE FRONTEND (only when build folder exists, e.g. Docker) =====

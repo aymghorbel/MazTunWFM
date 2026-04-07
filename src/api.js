@@ -289,6 +289,7 @@ export const companyEntitiesAPI = {
 // Reports API
 export const reportsAPI = {
   allocation: (year, month) => fetchWithAuth(`/reports/allocation?year=${year}&month=${month}`),
+  allocationDetail: (year, month) => fetchWithAuth(`/reports/allocation-detail?year=${year}&month=${month}`),
 };
 
 // Workflows API
@@ -297,4 +298,23 @@ export const workflowsAPI = {
   create:  (data)     => fetchWithAuth('/workflows', { method: 'POST', body: JSON.stringify(data) }),
   update:  (id, data) => fetchWithAuth(`/workflows/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   delete:  (id)       => fetchWithAuth(`/workflows/${id}`, { method: 'DELETE' }),
+};
+
+export const erpRosterAPI = {
+  getAll:  ()            => fetchWithAuth('/erp/roster'),
+  add:     (data)        => fetchWithAuth('/erp/roster', { method: 'POST', body: JSON.stringify(data) }),
+  update:  (userId,data) => fetchWithAuth(`/erp/roster/${userId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  remove:  (userId)      => fetchWithAuth(`/erp/roster/${userId}`, { method: 'DELETE' }),
+};
+
+export const erpWeeksAPI = {
+  getAll:  ()         => fetchWithAuth('/erp/weeks'),
+  create:  (data)     => fetchWithAuth('/erp/weeks', { method: 'POST', body: JSON.stringify(data) }),
+  update:  (id, data) => fetchWithAuth(`/erp/weeks/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete:  (id)       => fetchWithAuth(`/erp/weeks/${id}`, { method: 'DELETE' }),
+};
+
+export const erpNotificationsAPI = {
+  getAll: () => fetchWithAuth('/erp/notifications'),
+  send:   (data) => fetchWithAuth('/send-notification', { method: 'POST', body: JSON.stringify(data) }),
 };

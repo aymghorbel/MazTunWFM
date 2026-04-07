@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from "recharts";
-import { authAPI, usersAPI, projectsAPI, requestsAPI, timesheetAPI, rolesAPI, payrollAPI, activitiesAPI, rotationAPI, companyAPI, totpAPI, auditAPI, emailAPI, pushAPI, holidaysAPI, companyEntitiesAPI, reportsAPI, workflowsAPI } from "./api";
+import { authAPI, usersAPI, projectsAPI, requestsAPI, timesheetAPI, rolesAPI, payrollAPI, activitiesAPI, rotationAPI, companyAPI, totpAPI, auditAPI, emailAPI, pushAPI, holidaysAPI, companyEntitiesAPI, reportsAPI, workflowsAPI, erpRosterAPI, erpWeeksAPI, erpNotificationsAPI, uploadsAPI } from "./api";
 import { getMsalInstance, loginRequest, ssoEnabled } from "./msalConfig";
 
 // ─── Export helpers ────────────────────────────────────────────────────────────
@@ -26,12 +26,12 @@ const DS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const ALLOC_STEPS = [1, 0.75, 0.5, 0.25];
 let HOLIDAYS = ["2025-01-01","2025-03-20","2025-04-09","2025-05-01","2025-07-25","2025-08-13","2025-10-15"];
 const MONTHLY_STATS = [
-  {month:"Jan",workedDays:168,leaves:14,overtime:8,missions:5,ontime:94},
-  {month:"Feb",workedDays:154,leaves:22,overtime:12,missions:8,ontime:91},
-  {month:"Mar",workedDays:172,leaves:10,overtime:6,missions:6,ontime:96},
-  {month:"Apr",workedDays:160,leaves:18,overtime:4,missions:9,ontime:89},
-  {month:"May",workedDays:165,leaves:16,overtime:10,missions:7,ontime:92},
-  {month:"Jun",workedDays:158,leaves:20,overtime:14,missions:11,ontime:88},
+  {month:"Jan",workedDays:168,leaves:14,missions:5,ontime:94},
+  {month:"Feb",workedDays:154,leaves:22,missions:8,ontime:91},
+  {month:"Mar",workedDays:172,leaves:10,missions:6,ontime:96},
+  {month:"Apr",workedDays:160,leaves:18,missions:9,ontime:89},
+  {month:"May",workedDays:165,leaves:16,missions:7,ontime:92},
+  {month:"Jun",workedDays:158,leaves:20,missions:11,ontime:88},
 ];
 const COLORS = ["#7c3aed","#0ea5e9","#10b981","#f59e0b","#ef4444","#ec4899","#8b5cf6","#06b6d4","#f97316","#64748b"];
 const BG_MAP = {"#7c3aed":"#f5f3ff","#0ea5e9":"#f0f9ff","#10b981":"#f0fdf4","#f59e0b":"#fffbeb","#ef4444":"#fef2f2","#ec4899":"#fdf2f8","#8b5cf6":"#f5f3ff","#06b6d4":"#ecfeff","#f97316":"#fff7ed","#64748b":"#f8fafc"};
@@ -44,6 +44,7 @@ const PERMISSIONS_LIST = [
   {key:"requests",label:"Submit Requests"},{key:"schedule",label:"View Schedule"},
   {key:"leave_balance",label:"View Leave Balances"},{key:"manage_users",label:"Manage Users & Roles"},
   {key:"manage_projects",label:"Manage Projects"},
+  {key:"erp_rota",label:"ERP Duty Rota"},{key:"erp_rota_edit",label:"ERP Duty Rota — Edit Rotation & Members"},{key:"erp_rota_notify",label:"ERP Duty Rota — Send Notifications"},
 ];
 
 // Data now loaded from API - kept as fallbacks
@@ -154,6 +155,44 @@ function ToastContainer() {
 }
 
 // ─── CSS ──────────────────────────────────────────────────────────────────────
+// ── Theme definitions ─────────────────────────────────────────────────────────
+const THEMES = {
+  default: { key:"default", label:"Light", ico:"☀️", vars:{} },
+  enterprise: { key:"enterprise", label:"Enterprise", ico:"🏢", vars:{
+    "--bg":"#f5f5f5","--surface":"#ffffff","--s2":"#faf9f8","--s3":"#edebe9",
+    "--b":"#edebe9","--b2":"#8a8886",
+    "--t":"#323130","--t2":"#605e5c","--t3":"#a19f9d",
+    "--v":"#0078d4","--vl":"#eff6fc","--vd":"#106ebe",
+    "--sk":"#0078d4","--skl":"#eff6fc",
+    "--gr":"#107c10","--grl":"#f1faf1",
+    "--am":"#ffb900","--aml":"#fff8e1",
+    "--re":"#d13438","--rel":"#fdf3f4",
+    "--r":"4px","--rs":"2px",
+    "--sh":"0 1.6px 3.6px 0 rgba(0,0,0,.132),0 .3px .9px 0 rgba(0,0,0,.108)",
+    "--shm":"0 3.2px 7.2px 0 rgba(0,0,0,.132),0 .6px 1.8px 0 rgba(0,0,0,.108)",
+    "--shl":"0 6.4px 14.4px 0 rgba(0,0,0,.132),0 1.2px 3.6px 0 rgba(0,0,0,.108)",
+    "--ent-sb":"#faf9f8","--ent-sb-hover":"#f3f2f1","--ent-sb-active-bg":"#eff6fc",
+    "--ent-accent":"#0078d4","--ent-accent-hover":"#106ebe",
+    "--ent-neutral":"#8a8886","--ent-neutral-light":"#f3f2f1",
+    "--ent-on":"#0078d4","--ent-on-bg":"#deecf9",
+    "--ent-extra":"#5c2d91","--ent-extra-bg":"#ede9fe",
+    "--ent-hol":"#8a8886","--ent-hol-bg":"#faf9f8"
+  }},
+  dark: { key:"dark", label:"Dark", ico:"🌙", vars:{
+    "--bg":"#0f172a","--surface":"#1e293b","--s2":"#334155","--s3":"#475569",
+    "--b":"#334155","--b2":"#475569",
+    "--t":"#f1f5f9","--t2":"#cbd5e1","--t3":"#94a3b8",
+    "--v":"#a78bfa","--vl":"#1e1b4b","--vd":"#c4b5fd",
+    "--sk":"#38bdf8","--skl":"#0c4a6e",
+    "--gr":"#34d399","--grl":"#064e3b",
+    "--am":"#fbbf24","--aml":"#78350f",
+    "--re":"#f87171","--rel":"#7f1d1d",
+    "--sh":"0 1px 3px rgba(0,0,0,.3),0 1px 2px rgba(0,0,0,.2)",
+    "--shm":"0 4px 12px rgba(0,0,0,.4),0 2px 4px rgba(0,0,0,.3)",
+    "--shl":"0 10px 30px rgba(0,0,0,.5),0 4px 8px rgba(0,0,0,.3)"
+  }},
+};
+
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
@@ -207,7 +246,12 @@ body{background:var(--bg);color:var(--t);font-family:'Plus Jakarta Sans',sans-se
 .nbadge{margin-left:auto;background:var(--re);color:#fff;font-size:10px;border-radius:20px;padding:1px 6px;font-family:'JetBrains Mono',monospace;font-weight:600;min-width:18px;text-align:center;}
 .nbadge.am{background:var(--am);}
 .main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;}
-.topbar{height:54px;display:flex;align-items:center;justify-content:space-between;padding:0 24px;border-bottom:1px solid var(--b);background:var(--surface);flex-shrink:0;}
+.topbar{height:54px;display:flex;align-items:center;justify-content:space-between;padding:0 24px;border-bottom:1px solid var(--b);background:var(--surface);flex-shrink:0;gap:12px;}
+.topbar-search{display:flex;align-items:center;gap:8px;background:var(--s2);border:1px solid var(--b);border-radius:var(--rs);padding:6px 12px;flex:1;max-width:420px;}
+.topbar-search-input{border:none;background:transparent;outline:none;font-size:13px;color:var(--t);width:100%;font-family:inherit;}
+.topbar-search-input::placeholder{color:var(--t3);}
+.profile-name{display:none;}
+@media(min-width:768px){.profile-name{display:block;}}
 .pg-title{font-size:18px;font-weight:800;color:var(--t);}
 .pg-sub{font-size:11px;color:var(--t3);font-weight:500;}
 .content{flex:1;overflow-y:auto;padding:20px 24px;min-width:0;}
@@ -396,6 +440,9 @@ input:checked+.sldr:before{transform:translateX(16px);}
   .pg-title{font-size:15px;}
   .pg-sub{display:none;}
   .topbar-date{display:none;}
+  .topbar-search{display:none!important;}
+  .topbar-logo-text{display:none!important;}
+  .profile-name{display:none!important;}
   .card{padding:14px;}
 }
 @media(max-width:480px){
@@ -404,6 +451,169 @@ input:checked+.sldr:before{transform:translateX(16px);}
   .login-card{padding:28px 20px;}
 }
 @keyframes toast-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.login-card{background:var(--surface);}
+.fi,.isel{background:var(--surface);color:var(--t);}
+select.fi option{background:var(--surface);color:var(--t);}
+input[type="date"]{color-scheme:light;}
+:root[style*="--bg:#0f172a"] input[type="date"]{color-scheme:dark;}
+
+/* ── Enterprise theme (Microsoft Admin Center style) ──────────────────────── */
+/* Uses Fluent UI design: flat, clean, Segoe UI, left-accent sidebar, underline tabs */
+/* All enterprise colors reference --ent-* or --v/--vl/--vd variables */
+.ent-breadcrumb{display:none;}
+.ent-page-header{display:none;}
+
+/* Enterprise: Segoe UI font stack */
+:root[style*="--ent-sb"] *{font-family:'Segoe UI','Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,sans-serif;}
+
+/* Enterprise: breadcrumb */
+:root[style*="--ent-sb"] .ent-breadcrumb{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--t3);font-weight:400;margin-bottom:1px;}
+:root[style*="--ent-sb"] .ent-bc-sep{color:var(--b2);margin:0 2px;font-size:10px;}
+:root[style*="--ent-sb"] .ent-bc-active{color:var(--t);font-weight:600;}
+:root[style*="--ent-sb"] .ent-breadcrumb span:first-child:hover{color:var(--v);text-decoration:underline;}
+
+/* Enterprise: page header */
+:root[style*="--ent-sb"] .ent-page-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 0 16px;margin-bottom:16px;border-bottom:1px solid var(--b);gap:16px;flex-wrap:wrap;
+}
+:root[style*="--ent-sb"] .ent-ph-desc{font-size:14px;color:var(--t2);line-height:1.5;max-width:600px;font-weight:400;}
+:root[style*="--ent-sb"] .ent-ph-right{display:flex;align-items:center;gap:6px;flex-shrink:0;}
+:root[style*="--ent-sb"] .ent-ph-meta{display:flex;align-items:center;gap:6px;}
+:root[style*="--ent-sb"] .ent-ph-chip{display:inline-flex;align-items:center;padding:2px 8px;border-radius:var(--rs);font-size:12px;font-weight:600;background:var(--vl);color:var(--v);}
+:root[style*="--ent-sb"] .ent-ph-chip-muted{background:var(--s2);color:var(--t3);}
+
+/* Enterprise: sidebar — light bg, left accent bar */
+:root[style*="--ent-sb"] .sb{background:var(--ent-sb);border-right:1px solid var(--b);}
+:root[style*="--ent-sb"] .sb .logo-ico{border-radius:var(--rs);background:var(--ent-accent);}
+:root[style*="--ent-sb"] .sb .logo-co{color:var(--t);font-size:14px;font-weight:700;}
+:root[style*="--ent-sb"] .sb .logo-sub{color:var(--t3);font-size:10px;}
+:root[style*="--ent-sb"] .sb .nl{color:var(--t3);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;}
+:root[style*="--ent-sb"] .sb .ni{color:var(--t2);border-radius:0;padding:9px 12px;margin:0;font-size:14px;font-weight:400;border-left:3px solid transparent;transition:all .1s;}
+:root[style*="--ent-sb"] .sb .ni:hover{background:var(--ent-sb-hover);color:var(--t);border-left-color:transparent;}
+:root[style*="--ent-sb"] .sb .ni.active{background:var(--ent-sb-active-bg);color:var(--ent-accent);font-weight:600;border-left-color:var(--ent-accent);border-radius:0;}
+:root[style*="--ent-sb"] .sb .ni-ico{filter:none;opacity:1;font-size:15px;}
+:root[style*="--ent-sb"] .sb .ni.active .ni-ico{filter:none;}
+:root[style*="--ent-sb"] .sb .u-nm{color:var(--t);}
+:root[style*="--ent-sb"] .sb .u-rl{color:var(--t3);}
+:root[style*="--ent-sb"] .sb .upill{background:var(--ent-sb-hover);border:1px solid var(--b);border-radius:var(--rs);}
+:root[style*="--ent-sb"] .sb .nbadge{background:var(--ent-accent);color:#fff;border-radius:10px;font-size:10px;}
+:root[style*="--ent-sb"] .sb > div:last-child{border-color:var(--b);}
+:root[style*="--ent-sb"] .sb > div:last-child span{color:var(--t3)!important;}
+:root[style*="--ent-sb"] .sb > div:last-child .dot{background:var(--gr)!important;}
+
+/* Enterprise: topbar */
+:root[style*="--ent-sb"] .topbar{height:48px;padding:0 24px;border-bottom:none;box-shadow:none;background:#0F27A4;}
+:root[style*="--ent-sb"] .topbar .hamburger span{background:#fff;}
+:root[style*="--ent-sb"] .topbar-search{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.2);border-radius:var(--r);}
+:root[style*="--ent-sb"] .topbar-search:focus-within{background:rgba(255,255,255,.95);border-color:#fff;}
+:root[style*="--ent-sb"] .topbar-search-input{font-size:14px;color:#fff;}
+:root[style*="--ent-sb"] .topbar-search:focus-within .topbar-search-input{color:var(--t);}
+:root[style*="--ent-sb"] .topbar-search-input::placeholder{color:rgba(255,255,255,.7);}
+:root[style*="--ent-sb"] .topbar-search:focus-within .topbar-search-input::placeholder{color:var(--t3);}
+:root[style*="--ent-sb"] .topbar-search span{color:rgba(255,255,255,.8)!important;}
+:root[style*="--ent-sb"] .topbar-search:focus-within span{color:var(--t3)!important;}
+:root[style*="--ent-sb"] .topbar-date{color:#fff!important;}
+:root[style*="--ent-sb"] .topbar .btn.bo{border-color:rgba(255,255,255,.4);color:#fff;}
+:root[style*="--ent-sb"] .topbar .btn.bo:hover{background:rgba(255,255,255,.15);border-color:#fff;color:#fff;}
+:root[style*="--ent-sb"] .topbar .av{border:2px solid rgba(255,255,255,.4);}
+:root[style*="--ent-sb"] .topbar .profile-name div:first-child{color:#fff;}
+:root[style*="--ent-sb"] .topbar .profile-name div:last-child{color:rgba(255,255,255,.7);}
+:root[style*="--ent-sb"] .pg-title{font-size:18px;font-weight:700;color:#fff;letter-spacing:0;line-height:48px;}
+:root[style*="--ent-sb"] .topbar-logo-text{color:#fff!important;}
+:root[style*="--ent-sb"] .topbar-logo .logo-ico{background:rgba(255,255,255,.2);box-shadow:none;}
+
+/* Enterprise: content area */
+:root[style*="--ent-sb"] .content{padding:20px 24px;}
+
+/* Enterprise: cards — flat Fluent surface */
+:root[style*="--ent-sb"] .card{border-radius:var(--r);padding:16px 20px;box-shadow:var(--sh);}
+:root[style*="--ent-sb"] .card:hover{box-shadow:var(--shm);}
+:root[style*="--ent-sb"] .card-hd{margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--b);}
+:root[style*="--ent-sb"] .card-title{font-size:14px;font-weight:600;color:var(--t);}
+:root[style*="--ent-sb"] .rc{border-radius:var(--r);}
+:root[style*="--ent-sb"] .pc{border-radius:var(--r);}
+
+/* Enterprise: KPI stat cards */
+:root[style*="--ent-sb"] .sg{gap:12px;}
+:root[style*="--ent-sb"] .sc{border-radius:var(--r);padding:16px 18px;}
+:root[style*="--ent-sb"] .sc:hover{box-shadow:var(--shm);}
+:root[style*="--ent-sb"] .sl{font-size:12px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--t2);margin-bottom:4px;}
+:root[style*="--ent-sb"] .sv{font-size:28px;font-weight:700;}
+
+/* Enterprise: tables — Fluent DetailsList style */
+:root[style*="--ent-sb"] .tbl th{background:transparent;font-size:12px;font-weight:600;letter-spacing:0;text-transform:none;color:var(--t2);border-bottom:2px solid var(--b);padding:8px 12px;}
+:root[style*="--ent-sb"] .tbl td{padding:8px 12px;font-size:13px;}
+:root[style*="--ent-sb"] .tbl tr:hover td{background:var(--ent-sb-hover);}
+:root[style*="--ent-sb"] .tw{border-radius:var(--r);}
+
+/* Enterprise: tabs — Fluent Pivot underline style */
+:root[style*="--ent-sb"] .tabs{background:transparent;border-radius:0;padding:0;gap:0;border-bottom:1px solid var(--b);}
+:root[style*="--ent-sb"] .tab{border-radius:0;padding:10px 16px;font-size:14px;font-weight:400;color:var(--t2);border-bottom:2px solid transparent;margin-bottom:-1px;}
+:root[style*="--ent-sb"] .tab:hover{color:var(--t);background:transparent;}
+:root[style*="--ent-sb"] .tab.active{color:var(--v);font-weight:600;background:transparent;box-shadow:none;border-bottom:2px solid var(--v);}
+
+/* Enterprise: buttons — Fluent UI flat */
+:root[style*="--ent-sb"] .btn{border-radius:var(--r);font-weight:600;font-size:14px;padding:6px 16px;letter-spacing:0;}
+:root[style*="--ent-sb"] .bp{background:var(--v);box-shadow:none;}
+:root[style*="--ent-sb"] .bp:hover{background:var(--vd);box-shadow:none;}
+:root[style*="--ent-sb"] .bo{border:1px solid var(--ent-neutral);color:var(--t2);}
+:root[style*="--ent-sb"] .bo:hover{border-color:var(--v);color:var(--v);background:var(--vl);}
+:root[style*="--ent-sb"] .bd{background:var(--rel);color:var(--re);border:1px solid var(--re);}
+:root[style*="--ent-sb"] .bd:hover{background:var(--re);color:#fff;}
+:root[style*="--ent-sb"] .bsm{padding:4px 12px;font-size:13px;}
+
+/* Enterprise: badges — Fluent status */
+:root[style*="--ent-sb"] .badge{border-radius:var(--rs);font-size:12px;padding:2px 8px;font-weight:600;}
+
+/* Enterprise: modals — Fluent Dialog */
+:root[style*="--ent-sb"] .mo{backdrop-filter:none;background:rgba(0,0,0,.4);}
+:root[style*="--ent-sb"] .md{border-radius:var(--r);padding:24px;border:none;box-shadow:var(--shl);}
+:root[style*="--ent-sb"] .md-title{font-size:20px;font-weight:600;letter-spacing:0;padding-bottom:0;border-bottom:none;margin-bottom:16px;color:var(--t);}
+:root[style*="--ent-sb"] .md-footer{border-top:1px solid var(--b);padding-top:16px;margin-top:24px;}
+
+/* Enterprise: form inputs — Fluent TextField */
+:root[style*="--ent-sb"] .fi{border-radius:var(--rs);padding:6px 12px;border:1px solid var(--ent-neutral);font-size:14px;transition:border-color .1s;}
+:root[style*="--ent-sb"] .fi:focus{border-color:var(--v);box-shadow:none;outline:none;border-bottom-width:2px;}
+:root[style*="--ent-sb"] .flbl{font-size:14px;font-weight:600;color:var(--t);text-transform:none;letter-spacing:0;margin-bottom:4px;}
+
+/* Enterprise: grid spacing */
+:root[style*="--ent-sb"] .g2{gap:16px;margin-bottom:16px;}
+:root[style*="--ent-sb"] .g3{gap:12px;margin-bottom:16px;}
+
+/* Enterprise: status banners */
+:root[style*="--ent-sb"] .ts-banner{border-radius:var(--rs);padding:12px 16px;}
+:root[style*="--ent-sb"] .ts-banner.submitted{border-color:var(--am);}
+:root[style*="--ent-sb"] .ts-banner.approved{border-color:var(--gr);}
+:root[style*="--ent-sb"] .ts-banner.rejected{border-color:var(--re);}
+
+/* Enterprise: calendar day overrides */
+:root[style*="--ent-sb"] .cday.on{background:var(--ent-on-bg);color:var(--ent-on);}
+:root[style*="--ent-sb"] .cday.extra{background:var(--ent-extra-bg);color:var(--ent-extra);}
+:root[style*="--ent-sb"] .cday.hol{background:var(--ent-hol-bg);color:var(--ent-hol);}
+
+/* Enterprise: login page */
+:root[style*="--ent-sb"] .login-wrap{background:var(--bg);}
+:root[style*="--ent-sb"] .login-card{border-radius:var(--r);box-shadow:var(--shl);border:1px solid var(--b);padding:32px 28px;}
+:root[style*="--ent-sb"] .login-logo-ico{background:var(--ent-accent);border-radius:var(--rs);box-shadow:none;}
+:root[style*="--ent-sb"] .login-err{border-radius:var(--rs);}
+
+/* Enterprise: avatars — circular like Microsoft People */
+:root[style*="--ent-sb"] .av{border-radius:50%!important;}
+
+/* Enterprise: empty states */
+:root[style*="--ent-sb"] .empty{padding:40px 20px;}
+:root[style*="--ent-sb"] .empty-ico{font-size:36px;}
+
+/* Enterprise: profile menu */
+:root[style*="--ent-sb"] .profile-menu{border-radius:var(--r);box-shadow:var(--shl);}
+:root[style*="--ent-sb"] .profile-menu-item{font-size:14px;}
+
+/* Enterprise: allocation bars & misc */
+:root[style*="--ent-sb"] .add-proj-btn{border-radius:var(--rs);border-color:var(--v);color:var(--v);background:var(--vl);}
+:root[style*="--ent-sb"] .ap-detail{border-radius:var(--r);}
+:root[style*="--ent-sb"] .alloc-row{font-size:13px;}
+:root[style*="--ent-sb"] .sldr:checked{background:var(--v);}
 `;
 
 // ─── Shared mini-components ───────────────────────────────────────────────────
@@ -1337,8 +1547,8 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
                 <th>Annual Leave</th>
                 <th>Sick Leave</th>
                 {user.type==="field"
-                  ?<><th>Night Shift</th><th>Overtime</th><th>Mission</th></>
-                  :<><th>Remote Work</th><th>Mission</th><th>Training</th><th>Overtime</th></>}
+                  ?<><th>Night Shift</th><th>Mission</th></>
+                  :<><th>Remote Work</th><th>Mission</th><th>Training</th></>}
                 <th>Recovery</th>
               </tr></thead>
               <tbody><tr>
@@ -1349,14 +1559,12 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
                 {user.type==="field"
                   ?<>
                     <td style={{fontFamily:"'JetBrains Mono',monospace"}}>{actSum["Night Shift"]||0}</td>
-                    <td style={{fontFamily:"'JetBrains Mono',monospace"}}>{actSum["Overtime"]||0}</td>
                     <td style={{fontFamily:"'JetBrains Mono',monospace"}}>{(actSum["Mission"]||0)+(actSum["Mission Office"]||0)+(actSum["Other Mission"]||0)}</td>
                   </>
                   :<>
                     <td style={{fontFamily:"'JetBrains Mono',monospace"}}>{actSum["Remote Work"]||0}</td>
                     <td style={{fontFamily:"'JetBrains Mono',monospace"}}>{(actSum["Mission"]||0)+(actSum["Mission Office"]||0)+(actSum["Other Mission"]||0)}</td>
                     <td style={{fontFamily:"'JetBrains Mono',monospace"}}>{actSum["Training"]||0}</td>
-                    <td style={{fontFamily:"'JetBrains Mono',monospace"}}>{actSum["Overtime"]||0}</td>
                   </>}
                 <td style={{fontFamily:"'JetBrains Mono',monospace"}}>{actSum["Recovery Leave"]||0}</td>
               </tr></tbody>
@@ -1519,7 +1727,7 @@ function ApprovalsView({user,requests,setRequests,users,setUsers,roles,tsStatuse
   };
   const pendReq=requests.filter(r=>(r.status==="Pending"||r.status==="Pending L2")&&canApproveRequest(r));
   const allTeamReq=requests.filter(r=>canSeeRequest(r));
-  const icos={"Annual Leave":"🌴","Sick Leave":"🏥","Mission":"✈️","Mission Office":"✈️","Training":"📚","Remote Work":"🏠","Night Shift":"🌙","Overtime":"⏰","Extra Days":"💼","Compassionate":"💙","Recovery Leave":"🔄","Temporary Authorization":"🕐"};
+  const icos={"Annual Leave":"🌴","Sick Leave":"🏥","Mission":"✈️","Mission Office":"✈️","Training":"📚","Remote Work":"🏠","Night Shift":"🌙","Extra Days":"💼","Compassionate":"💙","Recovery Leave":"🔄","Temporary Authorization":"🕐"};
   const nm=id=>users.find(u=>u.id===id)?.name||"Unknown";
   async function approve(id){
     try{
@@ -1707,6 +1915,10 @@ function ApprovalsView({user,requests,setRequests,users,setUsers,roles,tsStatuse
               </div>
               <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6}}>
                 <StatusBadge status={r.status}/>
+                {(r.status==="Pending"||r.status==="Pending L2")&&r.createdAt&&(()=>{
+                  const days=Math.floor((new Date()-new Date(r.createdAt))/86400000);
+                  return days>=3?<span style={{fontSize:10,fontWeight:700,color:days>=7?"var(--re)":"var(--am)",background:days>=7?"var(--rel)":"var(--aml)",padding:"1px 6px",borderRadius:3}}>⏱ {days}d pending</span>:null;
+                })()}
                 {r.totalSteps>1&&<span style={{fontSize:10,color:r.status==="Pending L2"?"#7c3aed":"var(--t3)",fontWeight:600}}>
                   Step {r.approvalStep}/{r.totalSteps}{r.status==="Pending L2"?" · L2 Review":""}
                 </span>}
@@ -1855,6 +2067,22 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
   const [tab,setTab]=useState("mine");
   const [show,setShow]=useState(false);
   const [form,setForm]=useState({type:"",start:"",end:"",comment:"",halfDayStart:"",halfDayEnd:"",durationHours:1,balanceSource:"annual",authStartTime:"08:00",authEndTime:"10:00"});
+  const [attachFile,setAttachFile]=useState(null); // File object
+  const [attachUrl,setAttachUrl]=useState(""); // uploaded blob URL
+  const [attachUploading,setAttachUploading]=useState(false);
+  const handleAttach=async(e)=>{
+    const file=e.target.files?.[0];
+    if(!file)return;
+    if(file.size>10*1024*1024){toast("File too large. Max 10 MB.");return;}
+    setAttachFile(file);
+    setAttachUploading(true);
+    try{
+      const result=await uploadsAPI.upload(file);
+      setAttachUrl(result.blobName||result.url||result.name||"");
+      toast("File uploaded.","success");
+    }catch(err){toast("Upload failed: "+err.message);setAttachFile(null);}
+    setAttachUploading(false);
+  };
   const [cancelModal,setCancelModal]=useState(null);
   const [cancelReason,setCancelReason]=useState("");
   const [histFilter,setHistFilter]=useState("all");
@@ -1862,13 +2090,16 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
   const officeActs=activities.filter(a=>a.active&&(a.visibleTo==="office"||a.visibleTo==="both")).map(a=>a.name);
   const FTYP=[...new Set([...fieldActs,"Temporary Authorization"])];
   const OTYP=[...new Set([...officeActs,"Temporary Authorization"])];
-  const tList=user.type==="field"?FTYP:OTYP;
-  const icos={"Annual Leave":"🌴","Sick Leave":"🏥","Mission":"✈️","Mission Office":"✈️","Training":"📚","Remote Work":"🏠","Night Shift":"🌙","Overtime":"⏰","Extra Days":"💼","Compassionate":"💙","Recovery Leave":"🔄","Other Mission":"🗺","Temporary Authorization":"🕐"};
+  const leaveTypes=user.type==="field"?FTYP:OTYP;
+  const tList=[...leaveTypes,...ADMIN_DOC_TYPES];
+  const icos={"Annual Leave":"🌴","Sick Leave":"🏥","Mission":"✈️","Mission Office":"✈️","Training":"📚","Remote Work":"🏠","Night Shift":"🌙","Extra Days":"💼","Compassionate":"💙","Recovery Leave":"🔄","Other Mission":"🗺","Temporary Authorization":"🕐","Work Certificate":"📄","Salary Certificate":"📄","Salary Advance":"💰","Employment Letter":"📃","Experience Letter":"📃","Other Document":"📋"};
+  const ADMIN_DOC_TYPES=["Work Certificate","Salary Certificate","Salary Advance","Employment Letter","Experience Letter","Other Document"];
+  const isAdminDoc=ADMIN_DOC_TYPES.includes(form.type);
   const HALF_DAY_TYPES=["Annual Leave","Sick Leave","Compassionate","Remote Work","Mission","Mission Office","Other Mission","Training","Recovery Leave"];
   const showHalfDay=HALF_DAY_TYPES.includes(form.type);
   const isSingleDay=!form.end||form.end===form.start;
   const liveDc=useMemo(()=>{
-    if(!form.type||form.type==="Temporary Authorization"||!form.start||!form.end||form.end<form.start) return null;
+    if(!form.type||form.type==="Temporary Authorization"||ADMIN_DOC_TYPES.includes(form.type)||!form.start||!form.end||form.end<form.start) return null;
     const isSingle=form.end===form.start;
     const full=isSingle?1:Math.ceil((new Date(form.end)-new Date(form.start))/86400000)+1;
     const sd=form.halfDayStart?0.5:0;
@@ -1901,18 +2132,26 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
   },[activeTeamR]);// eslint-disable-line
 
   // Warn in form when teammates already have overlapping requests
-  const formConflicts=form.type!=="Temporary Authorization"&&form.start&&form.end
+  const formConflicts=form.type!=="Temporary Authorization"&&!ADMIN_DOC_TYPES.includes(form.type)&&form.start&&form.end
     ?activeTeamR.filter(r=>datesOverlap(form.start,form.end,r.start,r.end))
     :[];
 
   async function submit(){
     const isTempAuth=form.type==="Temporary Authorization";
-    if(!form.type||!form.start)return;
-    if(!isTempAuth&&!form.end)return;
+    const isDoc=ADMIN_DOC_TYPES.includes(form.type);
+    if(!form.type)return;
+    if(!isDoc&&!form.start)return;
+    if(!isDoc&&!isTempAuth&&!form.end)return;
     // Date ordering guard
-    if(!isTempAuth&&form.end<form.start){toast("End date must be on or after start date.");return;}
+    if(!isDoc&&!isTempAuth&&form.end<form.start){toast("End date must be on or after start date.");return;}
     let dc,durationHours,endDate;
-    if(isTempAuth){
+    if(isDoc){
+      // Admin doc requests: no dates, no balance
+      dc=0;durationHours=null;
+      const today=new Date().toISOString().split("T")[0];
+      endDate=form.start||today;
+      if(!form.start) setForm(f=>({...f,start:today}));
+    }else if(isTempAuth){
       // Issue 5: time-range validation
       if(!form.authStartTime||!form.authEndTime){toast("Start and end time required.");return;}
       const [sh,sm]=form.authStartTime.split(":").map(Number);
@@ -1930,10 +2169,10 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
       durationHours=null;endDate=form.end;
     }
     // Zero-duration guard
-    if(!isTempAuth&&dc<=0){toast("Request duration must be greater than 0 days.");return;}
-    if(!isTempAuth&&dc>7&&user.type==="field"){toast("Max 7 days per request for field staff.");return;}
+    if(!isTempAuth&&!isDoc&&dc<=0){toast("Request duration must be greater than 0 days.");return;}
+    if(!isTempAuth&&!isDoc&&dc>7&&user.type==="field"){toast("Max 7 days per request for field staff.");return;}
     // Issue 1: balance check before submission
-    if(!isTempAuth){
+    if(!isTempAuth&&!isDoc){
       const leaveBalTypes=["Annual Leave","Sick Leave","Compassionate"];
       if(leaveBalTypes.includes(form.type)||form.type==="Recovery Leave"){
         const useRecovery=form.type==="Recovery Leave"||(form.balanceSource||"annual")==="recovery";
@@ -1941,7 +2180,7 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
         if(dc>avail){toast(`Insufficient balance: ${dc}d requested, ${avail.toFixed(1)}d available.`);return;}
       }
     }
-    if(!isTempAuth){
+    if(!isTempAuth&&!isDoc){
       // Check if any covered month's timesheet is already submitted/approved
       const s0=new Date(form.start), s1=new Date(endDate);
       const d0=new Date(s0.getFullYear(),s0.getMonth(),1);
@@ -1965,12 +2204,13 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
       }
     }
     try{
-      const created=await requestsAPI.create({userId:user.id,type:form.type,start:form.start,end:endDate,comment:form.comment,daysCount:dc,durationHours,halfDayStart:form.halfDayStart||null,halfDayEnd:form.halfDayEnd||null,balanceSource:form.balanceSource||"annual",authStartTime:isTempAuth?(form.authStartTime||null):null,authEndTime:isTempAuth?(form.authEndTime||null):null});
+      const startDate=isDoc?(form.start||new Date().toISOString().split("T")[0]):form.start;
+      const created=await requestsAPI.create({userId:user.id,type:form.type,start:startDate,end:isDoc?startDate:endDate,comment:form.comment,daysCount:dc,durationHours,halfDayStart:isDoc?null:(form.halfDayStart||null),halfDayEnd:isDoc?null:(form.halfDayEnd||null),balanceSource:isDoc?"annual":(form.balanceSource||"annual"),authStartTime:isTempAuth?(form.authStartTime||null):null,authEndTime:isTempAuth?(form.authEndTime||null):null,attachmentUrl:attachUrl||null});
       // Issue 2: update balance in UI state immediately (deducted on submission)
       if((created.daysDeducted||0)>0&&setUsers) setUsers(p=>p.map(u=>u.id===user.id?{...u,leaveBalance:u.leaveBalance-created.daysDeducted,usedLeave:u.usedLeave+created.daysDeducted}:u));
       if((created.recoveryDeducted||0)>0&&setUsers) setUsers(p=>p.map(u=>u.id===user.id?{...u,recoveryBalance:u.recoveryBalance-created.recoveryDeducted}:u));
-      setRequests(p=>[...p,{id:created.id,userId:created.user_id,type:created.type,start:created.start_date?.slice(0,10),end:created.end_date?.slice(0,10),daysCount:Number(created.days_count),durationHours:created.duration_hours?Number(created.duration_hours):null,halfDayStart:created.half_day_start||"",halfDayEnd:created.half_day_end||"",balanceSource:created.balance_source||"annual",authStartTime:created.auth_start_time||null,authEndTime:created.auth_end_time||null,status:created.status,comment:created.comment}]);
-      setShow(false);setForm({type:"",start:"",end:"",comment:"",halfDayStart:"",halfDayEnd:"",durationHours:1,balanceSource:"annual",authStartTime:"08:00",authEndTime:"10:00"});
+      setRequests(p=>[...p,{id:created.id,userId:created.user_id,type:created.type,start:created.start_date?.slice(0,10),end:created.end_date?.slice(0,10),daysCount:Number(created.days_count),durationHours:created.duration_hours?Number(created.duration_hours):null,halfDayStart:created.half_day_start||"",halfDayEnd:created.half_day_end||"",balanceSource:created.balance_source||"annual",authStartTime:created.auth_start_time||null,authEndTime:created.auth_end_time||null,status:created.status,comment:created.comment,attachmentUrl:created.attachment_url||null}]);
+      setShow(false);setForm({type:"",start:"",end:"",comment:"",halfDayStart:"",halfDayEnd:"",durationHours:1,balanceSource:"annual",authStartTime:"08:00",authEndTime:"10:00"});setAttachFile(null);setAttachUrl("");
     }catch(err){toast('Failed to submit request: '+err.message);}
   }
   async function doCancelRequest(id,isApproved,reason){
@@ -2049,6 +2289,7 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
                     <div style={{flex:1}}>
                       <div style={{fontWeight:700,fontSize:13}}>{r.type}{r.balanceSource==="recovery"&&<span style={{marginLeft:5,fontSize:10,color:"var(--v)",fontWeight:400}}>🔄 Recovery</span>}</div>
                       <div style={{fontSize:11,color:"var(--t3)",fontFamily:"'JetBrains Mono',monospace"}}>{r.type==="Temporary Authorization"?`${r.start} · ${r.authStartTime||""}→${r.authEndTime||""} (${r.durationHours}h)`:`${r.start}${r.halfDayStart?" "+r.halfDayStart:""}${r.end!==r.start?" → "+r.end+(r.halfDayEnd?" "+r.halfDayEnd:""):""} · ${r.daysCount===0.5?"½ day":r.daysCount+"d"}`}{r.comment?<span style={{color:"var(--t3)"}}> · {r.comment}</span>:""}</div>
+                      {r.attachmentUrl&&<div style={{marginTop:3}}><span style={{fontSize:11,color:"var(--v)",cursor:"pointer"}} onClick={async()=>{try{const d=await uploadsAPI.getDownloadUrl(r.attachmentUrl);window.open(d.url,"_blank");}catch{toast("Could not load attachment.");}}}>📎 View attachment</span></div>}
                     </div>
                     <StatusBadge status={r.status}/>
                   </div>
@@ -2092,7 +2333,7 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
 
       {/* ── New Request modal ── */}
       {show&&(()=>{
-        const canSubmit=form.type&&form.start&&(form.type==="Temporary Authorization"||(form.end&&form.end>=form.start))&&(user.allowOverlap||formConflicts.length===0);
+        const canSubmit=form.type&&(isAdminDoc||form.start)&&(isAdminDoc||form.type==="Temporary Authorization"||(form.end&&form.end>=form.start))&&(user.allowOverlap||formConflicts.length===0);
         const dateErr=form.start&&form.end&&form.end<form.start;
         return(
         <div className="mo" onClick={e=>e.target.className==="mo"&&setShow(false)}>
@@ -2101,11 +2342,23 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
 
               {/* ── Type picker: icon pill grid ── */}
               <div className="fgrp ff">
-                <label className="flbl">Request Type <span style={{color:"var(--re)"}}>*</span></label>
+                <label className="flbl">Leave & Absence <span style={{color:"var(--re)"}}>*</span></label>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(148px,1fr))",gap:6,marginTop:4}}>
-                  {tList.map(t=>(
+                  {leaveTypes.map(t=>(
                     <button key={t} type="button"
                       onClick={()=>setForm(f=>({...f,type:t,halfDayStart:HALF_DAY_TYPES.includes(t)?f.halfDayStart:"",halfDayEnd:HALF_DAY_TYPES.includes(t)?f.halfDayEnd:""}))}
+                      style={{padding:"8px 10px",borderRadius:"var(--rs)",border:`1.5px solid ${form.type===t?"var(--v)":"var(--b)"}`,background:form.type===t?"var(--vl)":"var(--surface)",cursor:"pointer",display:"flex",alignItems:"center",gap:7,fontSize:12,fontWeight:form.type===t?700:400,color:form.type===t?"var(--v)":"var(--t2)",textAlign:"left",transition:"all .15s"}}>
+                      <span style={{fontSize:15}}>{icos[t]||"📋"}</span>{t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="fgrp ff">
+                <label className="flbl">Administrative Documents</label>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(148px,1fr))",gap:6,marginTop:4}}>
+                  {ADMIN_DOC_TYPES.map(t=>(
+                    <button key={t} type="button"
+                      onClick={()=>setForm(f=>({...f,type:t,start:"",end:"",halfDayStart:"",halfDayEnd:"",balanceSource:"annual"}))}
                       style={{padding:"8px 10px",borderRadius:"var(--rs)",border:`1.5px solid ${form.type===t?"var(--v)":"var(--b)"}`,background:form.type===t?"var(--vl)":"var(--surface)",cursor:"pointer",display:"flex",alignItems:"center",gap:7,fontSize:12,fontWeight:form.type===t?700:400,color:form.type===t?"var(--v)":"var(--t2)",textAlign:"left",transition:"all .15s"}}>
                       <span style={{fontSize:15}}>{icos[t]||"📋"}</span>{t}
                     </button>
@@ -2119,6 +2372,20 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
                   <span>📅 Annual: <b style={{color:"var(--gr)"}}>{annualRem}d</b></span>
                   {(user.recoveryBalance||0)>0&&<span>🔄 Recovery: <b style={{color:"var(--v)"}}>{Number(user.recoveryBalance||0)}d</b></span>}
                   {liveDc>0&&<span style={{marginLeft:"auto",fontWeight:700,fontSize:11,color:liveDc>availForType?"var(--re)":"var(--gr)"}}>After: {Math.max(0,availForType-liveDc).toFixed(1)}d left</span>}
+                </div>
+              )}
+
+              {/* ── Administrative Document fields ── */}
+              {isAdminDoc&&(
+                <div style={{padding:"12px 16px",background:"var(--vl)",border:"1px solid var(--v)",borderRadius:"var(--r)",fontSize:13}}>
+                  <div style={{fontWeight:700,color:"var(--v)",marginBottom:4}}>{icos[form.type]||"📄"} {form.type}</div>
+                  {form.type==="Work Certificate"&&<p style={{color:"var(--t2)",margin:0}}>A certificate confirming your current employment status and position at the company.</p>}
+                  {form.type==="Salary Certificate"&&<p style={{color:"var(--t2)",margin:0}}>A certificate detailing your current salary, issued for bank or visa purposes.</p>}
+                  {form.type==="Salary Advance"&&<p style={{color:"var(--t2)",margin:0}}>Request an advance on your upcoming salary. Specify the amount and reason in the comment.</p>}
+                  {form.type==="Employment Letter"&&<p style={{color:"var(--t2)",margin:0}}>A formal letter confirming your employment details for official purposes.</p>}
+                  {form.type==="Experience Letter"&&<p style={{color:"var(--t2)",margin:0}}>A letter detailing your role, responsibilities, and duration of employment.</p>}
+                  {form.type==="Other Document"&&<p style={{color:"var(--t2)",margin:0}}>Request any other administrative document. Please describe in the comment field.</p>}
+                  <p style={{fontSize:11,color:"var(--t3)",marginTop:6,marginBottom:0}}>No leave balance deduction. Requires HR approval.</p>
                 </div>
               )}
 
@@ -2136,7 +2403,7 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
               )}
 
               {/* ── Regular leave date fields (2-column) ── */}
-              {form.type&&form.type!=="Temporary Authorization"&&(
+              {form.type&&form.type!=="Temporary Authorization"&&!isAdminDoc&&(
                 <>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                     <div className="fgrp" style={{marginBottom:4}}>
@@ -2190,6 +2457,27 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
               {form.type==="Annual Leave"&&<p className="fnote">⚠ Must be submitted ≥15 days before. Max 7 days for field staff.</p>}
               {form.type==="Recovery Leave"&&<p className="fnote">🔄 Deducts from your Recovery Balance — {Number(user.recoveryBalance||0)}d remaining.</p>}
               {form.type==="Sick Leave"&&<p className="fnote">🏥 Deducts from your {form.balanceSource==="recovery"?"Recovery":"Annual Leave"} Balance.</p>}
+              {(form.type==="Sick Leave"||form.type==="Salary Advance")&&(
+                <div className="fgrp ff">
+                  <label className="flbl">{form.type==="Sick Leave"?"Medical Certificate":"Supporting Document"} {form.type==="Sick Leave"&&<span style={{color:"var(--re)"}}>*</span>}</label>
+                  {!attachFile ? (
+                    <label style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"14px 16px",borderRadius:"var(--r)",border:"2px dashed var(--b2)",background:"var(--s2)",cursor:"pointer",fontSize:13,color:"var(--t2)",transition:"all .15s"}}>
+                      <span style={{fontSize:20}}>📎</span>
+                      <span>{form.type==="Sick Leave"?"Click to attach medical certificate":"Attach supporting document (optional)"} (PDF, JPG, PNG — max 10 MB)</span>
+                      <input type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" onChange={handleAttach} style={{display:"none"}}/>
+                    </label>
+                  ) : (
+                    <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:"var(--r)",border:"1px solid var(--gr)",background:"var(--grl)"}}>
+                      <span style={{fontSize:18}}>{attachUploading?"⏳":"✅"}</span>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontWeight:600,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{attachFile.name}</div>
+                        <div style={{fontSize:11,color:"var(--t3)"}}>{(attachFile.size/1024).toFixed(0)} KB{attachUploading?" — uploading...":""}</div>
+                      </div>
+                      {!attachUploading&&<button type="button" onClick={()=>{setAttachFile(null);setAttachUrl("");}} style={{border:"none",background:"none",color:"var(--re)",cursor:"pointer",fontSize:16,padding:"2px 6px"}}>✕</button>}
+                    </div>
+                  )}
+                </div>
+              )}
               {form.type==="Compassionate"&&<p className="fnote">💙 Deducts from your {form.balanceSource==="recovery"?"Recovery":"Annual Leave"} Balance.</p>}
 
               {/* ── Teammate conflict warning ── */}
@@ -2234,20 +2522,58 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
 }
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
-function Dashboard({user,requests,projects,roles,tsStatuses,rotations=[]}) {
+function Dashboard({user,requests,projects,roles,tsStatuses,rotations=[],users=[],setView}) {
   const myR=requests.filter(r=>r.userId===user.id);
   const alRem=Number(user.leaveBalance)-Number(user.usedLeave);
   const recRem=Number(user.recoveryBalance||0);
   const today=new Date().toISOString().split("T")[0];
   const dayType=user.type==="field"?getFieldDayType(user.id,today,rotations):"Office";
   const myProj=projects.filter(p=>p.open&&(user.type==="field"?p.fieldAllowed:p.officeAllowed));
-  const icos={"Annual Leave":"🌴","Sick Leave":"🏥","Mission":"✈️","Training":"📚","Remote Work":"🏠","Night Shift":"🌙","Overtime":"⏰","Extra Days":"💼"};
+  const icos={"Annual Leave":"🌴","Sick Leave":"🏥","Mission":"✈️","Training":"📚","Remote Work":"🏠","Night Shift":"🌙","Extra Days":"💼"};
   // Current month TS status
   const now=new Date(); const curKey=tsKey(user.id,now.getFullYear(),now.getMonth());
   const curTsStatus=tsStatuses[curKey]?.status||"draft";
   const tsColors={draft:"var(--t3)",submitted:"var(--am)",approved:"var(--gr)",rejected:"var(--re)"};
+  // ERP Duty Rota summary — always load to detect if current user is on duty
+  const hasErp = hasPerm(roles,user.role,"all") || hasPerm(roles,user.role,"erp_rota");
+  const [erpDashData, setErpDashData] = useState({roster:[],weeks:[]});
+  useEffect(() => {
+    Promise.all([erpRosterAPI.getAll().catch(()=>[]), erpWeeksAPI.getAll().catch(()=>[])])
+      .then(([r,w]) => setErpDashData({roster:r, weeks:w.map(wk=>({id:wk.id,label:wk.label,start:wk.start_date?.slice(0,10)||wk.start,end:wk.end_date?.slice(0,10)||wk.end,crisisCoord:wk.crisis_coord,drillingCrisisCoord:wk.drilling_crisis_coord,cpfContact:wk.cpf_contact,drillingContact:wk.drilling_contact,media:wk.media}))}));
+  }, []);
+  const erpActiveWeek = erpDashData.weeks.find(w => w.start <= today && w.end >= today) || erpDashData.weeks[0];
+  const erpMemberCount = erpDashData.roster.length;
+  const dtf = daysUntilFriday();
+  // Check if current user is assigned to a duty slot in the active week
+  const myErpSlots = erpActiveWeek ? ERP_DUTY_SLOTS.filter(slot => Number(erpActiveWeek[slot.key]) === user.id) : [];
+  const isOnErpRoster = erpDashData.roster.some(r => r.user_id === user.id);
   return (
     <div>
+      {/* ERP Duty Alert — shown when current user is assigned to active rotation */}
+      {myErpSlots.length > 0 && erpActiveWeek && (
+        <div style={{marginBottom:14,padding:"14px 18px",borderRadius:"var(--r)",background:"linear-gradient(135deg,#eff6fc,#deecf9)",border:"2px solid var(--v)",display:"flex",alignItems:"center",gap:14}}>
+          <div style={{fontSize:32,flexShrink:0}}>🛡️</div>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:700,fontSize:15,color:"var(--v)"}}>You are on ERP Duty</div>
+            <div style={{fontSize:13,color:"var(--t2)",marginTop:2}}>
+              {myErpSlots.map(s => s.label).join(", ")} — {erpActiveWeek.label} ({erpActiveWeek.start} → {erpActiveWeek.end})
+            </div>
+            <div style={{fontSize:12,color:"var(--t3)",marginTop:4,fontFamily:"'JetBrains Mono',monospace"}}>
+              Emergency Line: 29 324 484 · {dtf} day{dtf!==1?"s":""} to handover
+            </div>
+          </div>
+          {setView && <button className="btn bp" style={{flexShrink:0}} onClick={()=>setView("erp_rota")}>View Rota</button>}
+        </div>
+      )}
+      {/* ERP Roster member but not on duty this week */}
+      {myErpSlots.length === 0 && isOnErpRoster && erpActiveWeek && (
+        <div style={{marginBottom:14,padding:"10px 16px",borderRadius:"var(--r)",background:"var(--vl)",border:"1px solid var(--b)",display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontSize:18}}>🔄</span>
+          <div style={{flex:1,fontSize:13,color:"var(--t2)"}}>
+            You are part of the <strong>ERP Duty Roster</strong>. You are not assigned this rotation ({erpActiveWeek.label}).
+          </div>
+        </div>
+      )}
       <div className="sg">
         <div className="sc"><div className="sa" style={{background:"#7c3aed"}}/><div className="sl">Today</div><div className="sv" style={{color:"var(--v)"}}>{dayType}</div><div className="sc2 neu">{new Date().toLocaleDateString("en-GB",{weekday:"short",day:"2-digit",month:"short"})}</div></div>
         <div className="sc" style={{padding:0,overflow:"hidden"}}>
@@ -2282,6 +2608,46 @@ function Dashboard({user,requests,projects,roles,tsStatuses,rotations=[]}) {
           {myProj.map(p=>(<div className="pc" key={p.id}><div className="pdot" style={{background:p.color}}/><div style={{flex:1}}><div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:700,color:"var(--t3)"}}>{p.code}</div><div style={{fontSize:13,fontWeight:600}}>{p.name}</div></div><span className="badge bgr2" style={{fontSize:10}}>{p.type}</span></div>))}
         </div>
       </div>
+      {/* ── ERP Duty Rota Summary ── */}
+      {hasErp && erpActiveWeek && (
+        <div className="card" style={{marginTop:14}}>
+          <div className="card-hd">
+            <div><div className="card-title">🔄 ERP Duty Rota</div><div style={{fontSize:11,color:"var(--t3)",fontFamily:"'JetBrains Mono',monospace"}}>{erpActiveWeek.label} · {erpActiveWeek.start} → {erpActiveWeek.end}</div></div>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <span className="badge" style={{background:"#fff7ed",color:"#E8750A"}}>{dtf}d to handover</span>
+              {setView && <button className="btn bo" style={{fontSize:11}} onClick={()=>setView("erp_rota")}>Open →</button>}
+            </div>
+          </div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:8,marginTop:8}}>
+            {ERP_DUTY_SLOTS.map(slot => {
+              const assignedId = erpActiveWeek[slot.key];
+              const u = assignedId ? users.find(x => x.id === Number(assignedId)) : null;
+              const leaveReq = u ? requests.find(r => r.userId === u.id && ["Annual Leave","Sick Leave","Compassionate","Recovery Leave","Remote Work"].includes(r.type) && (r.status==="Approved"||r.status==="Pending") && r.start <= erpActiveWeek.end && r.end >= erpActiveWeek.start) : null;
+              return (
+                <div key={slot.key} style={{padding:"6px 12px",borderRadius:8,background:leaveReq?"#fef2f2":slot.critical?"#fffbeb":"var(--bg)",border:leaveReq?"2px solid #ef4444":"1px solid var(--b)",display:"flex",alignItems:"center",gap:6,fontSize:12}}>
+                  <span>{slot.ico}</span>
+                  {u ? (
+                    <>
+                      <div className="av" style={{background:leaveReq?"#ef4444":aColor(u.id),width:20,height:20,fontSize:8,borderRadius:4}}>{initials(u.name)}</div>
+                      <span style={{fontWeight:600,textDecoration:leaveReq?"line-through":"none",color:leaveReq?"#ef4444":"inherit"}}>{u.name}</span>
+                      {leaveReq && <span style={{fontSize:10,fontWeight:700,color:"#dc2626"}}>⚠️</span>}
+                    </>
+                  ) : (
+                    <span style={{color:assignedId?"var(--t3)":"#ef4444",fontWeight:600}}>{assignedId?"Unknown":"Unassigned"}</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:12,marginTop:10,paddingTop:10,borderTop:"1px solid var(--b)"}}>
+            <span style={{fontSize:12,color:"var(--t3)"}}>{erpMemberCount} ERP members</span>
+            <span style={{fontSize:12,color:"var(--t3)"}}>·</span>
+            <span style={{fontSize:12,color:"var(--t3)"}}>{erpDashData.weeks.length} rotation weeks</span>
+            <div style={{flex:1}}/>
+            <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:12,color:"#dc2626",fontWeight:700}}>Emergency: 29 324 484</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2701,11 +3067,10 @@ function Analytics({user,requests,users,projects,roles,tsStatuses}) {
       const label=d.toLocaleString("default",{month:"short"});
       const mReqs=requests.filter(r=>{ const s=new Date(r.startDate); return s.getFullYear()===yr&&s.getMonth()===mo; });
       const leaveDays=mReqs.filter(r=>r.status==="Approved"&&/leave/i.test(r.type)).reduce((s,r)=>s+r.daysCount,0);
-      const overtime=mReqs.filter(r=>r.status==="Approved"&&/overtime/i.test(r.type)).reduce((s,r)=>s+r.daysCount,0);
       const missions=mReqs.filter(r=>r.status==="Approved"&&/mission/i.test(r.type)).reduce((s,r)=>s+r.daysCount,0);
       const tsAp=teamIds.filter(uid=>tsStatuses[`${uid}-${yr}-${moStr}`]?.status==="approved").length;
       const ontime=teamIds.length>0?Math.round((tsAp/teamIds.length)*100):0;
-      return {month:label,leaveDays,overtime,missions,tsApproved:tsAp,ontime};
+      return {month:label,leaveDays,missions,tsApproved:tsAp,ontime};
     });
   },[requests,tsStatuses,teamIds]);
   // Project activity — eligible active staff per open project
@@ -2740,8 +3105,8 @@ function Analytics({user,requests,users,projects,roles,tsStatuses}) {
         </div>
       </div>
       <div className="g2">
-        <div className="card"><div className="card-hd"><div><div className="card-title">Overtime & Missions</div><div style={{fontSize:11,color:"var(--t3)"}}>Approved request days · last 6 months</div></div></div>
-          <ResponsiveContainer width="100%" height={160}><BarChart data={monthlyStats} margin={{top:0,right:0,bottom:0,left:-22}}><CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false}/><XAxis dataKey="month" tick={{fontSize:11,fill:"#94a3b8"}} axisLine={false} tickLine={false}/><YAxis tick={{fontSize:11,fill:"#94a3b8"}} axisLine={false} tickLine={false}/><Tooltip content={<CT/>}/><Bar dataKey="overtime" name="Overtime (days)" fill="#ef4444" radius={[4,4,0,0]} maxBarSize={26}/><Bar dataKey="missions" name="Missions (days)" fill="#7c3aed" radius={[4,4,0,0]} maxBarSize={26}/></BarChart></ResponsiveContainer>
+        <div className="card"><div className="card-hd"><div><div className="card-title">Missions</div><div style={{fontSize:11,color:"var(--t3)"}}>Approved mission days · last 6 months</div></div></div>
+          <ResponsiveContainer width="100%" height={160}><BarChart data={monthlyStats} margin={{top:0,right:0,bottom:0,left:-22}}><CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false}/><XAxis dataKey="month" tick={{fontSize:11,fill:"#94a3b8"}} axisLine={false} tickLine={false}/><YAxis tick={{fontSize:11,fill:"#94a3b8"}} axisLine={false} tickLine={false}/><Tooltip content={<CT/>}/><Bar dataKey="missions" name="Missions (days)" fill="#7c3aed" radius={[4,4,0,0]} maxBarSize={26}/></BarChart></ResponsiveContainer>
         </div>
         <div className="card">
           <div className="card-hd"><div><div className="card-title">Project Reach</div><div style={{fontSize:11,color:"var(--t3)"}}>Eligible active staff per open project</div></div></div>
@@ -2792,10 +3157,6 @@ function ReportsView({users,requests,activities,tsStatuses}) {
 
   const sickLeaders=filtered
     .map(u=>({...u,val:act(u.id,"Sick Leave")}))
-    .filter(u=>u.val>0).sort((a,b)=>b.val-a.val).slice(0,10);
-
-  const overtimeLeaders=filtered
-    .map(u=>({...u,val:act(u.id,"Overtime")}))
     .filter(u=>u.val>0).sort((a,b)=>b.val-a.val).slice(0,10);
 
   const trainingLeaders=filtered.filter(u=>u.type==="office")
@@ -2927,10 +3288,6 @@ function ReportsView({users,requests,activities,tsStatuses}) {
           {sickLeaders.map((u,i)=><RankRow key={u.id} rank={i+1} user={u} val={u.val} label="d" maxVal={sickLeaders[0]?.val||1} color="var(--re)"/>)}
         </RC>
 
-        <RC title="Overtime Leaders" ico="⏰" desc={`Top overtime contributors in ${MN[month]}`} empty={overtimeLeaders.length===0?"No overtime recorded this period":null}>
-          {overtimeLeaders.map((u,i)=><RankRow key={u.id} rank={i+1} user={u} val={u.val} label="d" maxVal={overtimeLeaders[0]?.val||1} color="var(--am)"/>)}
-        </RC>
-
         <RC title="Training Days" ico="📚" desc={`Office employees with most training days in ${MN[month]}`} empty={trainingLeaders.length===0?"No training recorded this period":null}>
           {trainingLeaders.map((u,i)=><RankRow key={u.id} rank={i+1} user={u} val={u.val} label="d" maxVal={trainingLeaders[0]?.val||1} color="#8b5cf6"/>)}
         </RC>
@@ -3037,7 +3394,6 @@ function HRReport({users,tsStatuses,activities}) {
       rw:s["Remote Work"]||0,
       ms:(s["Mission"]||0)+(s["Mission Office"]||0)+(s["Other Mission"]||0),
       tr:s["Training"]||0,
-      ot:s["Overtime"]||0,
       ns:s["Night Shift"]||0,
       rc:s["Recovery Leave"]||0,
     };
@@ -3059,8 +3415,8 @@ function HRReport({users,tsStatuses,activities}) {
           <button className="btn bo bsm" title="Export XLSX" onClick={()=>{
             const MN2=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
             const isField=tab==="field";
-            const hdr=isField?["Employee","Dept","Worked Days","Annual Leave","Sick Leave","Night Shift","Overtime","Mission","Recovery","TS Status"]:["Employee","Dept","Worked Days","Annual Leave","Sick Leave","Remote Work","Mission","Training","Overtime","Recovery","TS Status"];
-            const rows=[hdr,...list.map(u=>{const g=gs(u);const tsk=Object.values(tsStatuses).find(ts=>ts.userId===u.id&&ts.year===year&&ts.month===month+1)?.status||"—";return isField?[u.name,u.dept||"",g.wd,g.al,g.sl,g.ns,g.ot,g.ms,g.rc,tsk]:[u.name,u.dept||"",g.wd,g.al,g.sl,g.rw,g.ms,g.tr,g.ot,g.rc,tsk];})];
+            const hdr=isField?["Employee","Dept","Worked Days","Annual Leave","Sick Leave","Night Shift","Mission","Recovery","TS Status"]:["Employee","Dept","Worked Days","Annual Leave","Sick Leave","Remote Work","Mission","Training","Recovery","TS Status"];
+            const rows=[hdr,...list.map(u=>{const g=gs(u);const tsk=Object.values(tsStatuses).find(ts=>ts.userId===u.id&&ts.year===year&&ts.month===month+1)?.status||"—";return isField?[u.name,u.dept||"",g.wd,g.al,g.sl,g.ns,g.ms,g.rc,tsk]:[u.name,u.dept||"",g.wd,g.al,g.sl,g.rw,g.ms,g.tr,g.rc,tsk];})];
             downloadXLSX(rows,`hr-report-${MN[month]}-${year}-${tab}`);
           }}>⬇ XLSX</button>
           <button className="btn bo bsm" title="Print / Save as PDF" onClick={printPage}>🖨 PDF</button>
@@ -3074,7 +3430,7 @@ function HRReport({users,tsStatuses,activities}) {
             <th>Worked Days</th>
             <th>Annual Leave</th>
             <th>Sick Leave</th>
-            {tab==="field"?<><th>Night Shift</th><th>Overtime</th><th>Mission</th></>:<><th>Remote Work</th><th>Mission</th><th>Training</th><th>Overtime</th></>}
+            {tab==="field"?<><th>Night Shift</th><th>Mission</th></>:<><th>Remote Work</th><th>Mission</th><th>Training</th></>}
             <th>Recovery</th>
             <th>TS Status</th>
           </tr></thead>
@@ -3087,7 +3443,7 @@ function HRReport({users,tsStatuses,activities}) {
               <td><strong style={{color:"var(--v)",...mono}}>{s.wd}</strong></td>
               {numCell(s.al)}
               {numCell(s.sl)}
-              {tab==="field"?<>{numCell(s.ns)}{numCell(s.ot)}{numCell(s.ms)}</>:<>{numCell(s.rw)}{numCell(s.ms)}{numCell(s.tr)}{numCell(s.ot)}</>}
+              {tab==="field"?<>{numCell(s.ns)}{numCell(s.ms)}</>:<>{numCell(s.rw)}{numCell(s.ms)}{numCell(s.tr)}</>}
               {numCell(s.rc)}
               <td><TSStatusBadge status={tss}/></td>
             </tr>);
@@ -3251,11 +3607,18 @@ function AllocationReport() {
   const [month,setMonth]=useState(now.getMonth()+1);
   const [data,setData]=useState([]);
   const [loading,setLoading]=useState(false);
+  const [view,setView]=useState("projects"); // "projects" | "departments" | "employees"
+  const [detail,setDetail]=useState([]); // employee-level detail data
+  const [detailLoading,setDetailLoading]=useState(false);
+  const [expandedProj,setExpandedProj]=useState(null); // project id for drill-down
   const MN=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
   useEffect(()=>{
-    setLoading(true);
-    reportsAPI.allocation(year,month).then(rows=>setData(rows||[])).catch(()=>setData([])).finally(()=>setLoading(false));
+    setLoading(true);setExpandedProj(null);
+    Promise.all([
+      reportsAPI.allocation(year,month).catch(()=>[]),
+      reportsAPI.allocationDetail(year,month).catch(()=>[])
+    ]).then(([agg,det])=>{setData(agg||[]);setDetail(det||[]);}).finally(()=>setLoading(false));
   },[year,month]);
 
   const depts=[...new Set(data.map(r=>r.dept))].sort();
@@ -3274,6 +3637,24 @@ function AllocationReport() {
     return{};
   }
 
+  // Summary data for charts
+  const deptTotals=depts.map(d=>{
+    const total=projects.reduce((s,p)=>{const v=getCell(p.id,d);return s+(v||0);},0);
+    const projCount=projects.filter(p=>getCell(p.id,d)!==null).length;
+    return{dept:d,total:Math.round(total*10)/10,projCount};
+  });
+  const projTotals=projects.map(p=>{
+    const total=depts.reduce((s,d)=>{const v=getCell(p.id,d);return s+(v||0);},0);
+    const deptCount=depts.filter(d=>getCell(p.id,d)!==null).length;
+    return{...p,total:Math.round(total*10)/10,deptCount};
+  }).sort((a,b)=>b.total-a.total);
+
+  const legend=<div style={{marginTop:10,fontSize:11,color:"var(--t3)"}}>
+    <span style={{display:"inline-block",width:12,height:12,background:"#dcfce7",border:"1px solid #86efac",marginRight:4,verticalAlign:"middle"}}/>≥20%
+    <span style={{display:"inline-block",width:12,height:12,background:"#fef9c3",border:"1px solid #fde047",marginRight:4,marginLeft:10,verticalAlign:"middle"}}/>10–19%
+    <span style={{display:"inline-block",width:12,height:12,background:"#dbeafe",border:"1px solid #93c5fd",marginRight:4,marginLeft:10,verticalAlign:"middle"}}/>1–9%
+  </div>;
+
   return(
     <div>
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16,flexWrap:"wrap"}}>
@@ -3281,46 +3662,320 @@ function AllocationReport() {
         <button className="btn bo bsm" onClick={()=>{if(month===1){setMonth(12);setYear(y=>y-1);}else setMonth(m=>m-1);}}>‹</button>
         <span style={{fontWeight:700,minWidth:90,textAlign:"center"}}>{MN[month-1]} {year}</span>
         <button className="btn bo bsm" onClick={()=>{if(month===12){setMonth(1);setYear(y=>y+1);}else setMonth(m=>m+1);}}>›</button>
+        <div style={{flex:1}}/>
+        <div className="tabs" style={{margin:0,flex:"none"}}>
+          <div className={`tab ${view==="projects"?"active":""}`} onClick={()=>setView("projects")}>Projects by Dept</div>
+          <div className={`tab ${view==="departments"?"active":""}`} onClick={()=>setView("departments")}>Depts by Project</div>
+          <div className={`tab ${view==="employees"?"active":""}`} onClick={()=>setView("employees")}>Employee Detail</div>
+        </div>
         {loading&&<span style={{fontSize:12,color:"var(--t3)"}}>Loading…</span>}
       </div>
+
       {data.length===0&&!loading&&<div style={{color:"var(--t3)",fontSize:13,padding:"20px 0"}}>No submitted/approved timesheet allocations for this period.</div>}
-      {data.length>0&&(
-        <div className="tw">
-          <table className="tbl" style={{fontSize:12}}>
-            <thead>
-              <tr>
-                <th>Project</th>
-                <th>Entity</th>
-                <th>Type</th>
-                {depts.map(d=><th key={d} style={{minWidth:80}}>{d}</th>)}
-                <th>Total %</th>
-              </tr>
-            </thead>
-            <tbody>
-              {projects.map(p=>{
-                const rowTotal=depts.reduce((s,d)=>{const v=getCell(p.id,d);return s+(v||0);},0);
+
+      {data.length>0&&view==="projects"&&(
+        <>
+          {/* Summary cards */}
+          <div className="sg" style={{marginBottom:16}}>
+            <div className="sc"><div className="sa" style={{background:"var(--v)"}}/><div className="sl">Projects</div><div className="sv" style={{color:"var(--v)"}}>{projects.length}</div><div className="sc2 neu">with allocations</div></div>
+            <div className="sc"><div className="sa" style={{background:"var(--sk)"}}/><div className="sl">Departments</div><div className="sv" style={{color:"var(--sk)"}}>{depts.length}</div><div className="sc2 neu">contributing</div></div>
+            <div className="sc"><div className="sa" style={{background:"var(--gr)"}}/><div className="sl">Top Project</div><div className="sv" style={{color:"var(--gr)",fontSize:16}}>{projTotals[0]?.code||"—"}</div><div className="sc2 neu">{projTotals[0]?.total||0}% total</div></div>
+            <div className="sc"><div className="sa" style={{background:"var(--am)"}}/><div className="sl">Top Department</div><div className="sv" style={{color:"var(--am)",fontSize:16}}>{deptTotals.sort((a,b)=>b.total-a.total)[0]?.dept||"—"}</div><div className="sc2 neu">{deptTotals.sort((a,b)=>b.total-a.total)[0]?.projCount||0} projects</div></div>
+          </div>
+
+          {/* Bar chart: project totals */}
+          <div className="card" style={{marginBottom:14}}>
+            <div className="card-hd"><div className="card-title">Project Allocation Summary</div></div>
+            <ResponsiveContainer width="100%" height={Math.max(200,projTotals.length*32)}>
+              <BarChart data={projTotals} layout="vertical" margin={{left:80,right:20,top:5,bottom:5}}>
+                <CartesianGrid strokeDasharray="3 3" horizontal={false}/>
+                <XAxis type="number" unit="%" domain={[0,"auto"]}/>
+                <YAxis type="category" dataKey="code" width={75} tick={{fontSize:11,fontFamily:"'JetBrains Mono',monospace"}}/>
+                <Tooltip formatter={v=>`${v}%`}/>
+                <Bar dataKey="total" fill="var(--v)" radius={[0,4,4,0]} barSize={18}/>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Matrix table: rows=projects, cols=departments */}
+          <div className="tw">
+            <table className="tbl" style={{fontSize:12}}>
+              <thead>
+                <tr>
+                  <th>Project</th>
+                  <th>Entity</th>
+                  <th>Type</th>
+                  {depts.map(d=><th key={d} style={{minWidth:80}}>{d}</th>)}
+                  <th>Total %</th>
+                </tr>
+              </thead>
+              <tbody>
+                {projects.map(p=>{
+                  const rowTotal=depts.reduce((s,d)=>{const v=getCell(p.id,d);return s+(v||0);},0);
+                  return(
+                    <tr key={p.id}>
+                      <td><span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700}}>{p.code}</span><div style={{fontSize:11,color:"var(--t3)"}}>{p.name}</div></td>
+                      <td>{p.entityCode?<span className="badge bgr2" style={{fontSize:10}}>{p.entityCode}</span>:<span style={{color:"var(--t3)"}}>—</span>}</td>
+                      <td><span className="badge bgr2" style={{fontSize:10}}>{p.type}</span></td>
+                      {depts.map(d=>{
+                        const val=getCell(p.id,d);
+                        return<td key={d} style={{textAlign:"center",...cellStyle(val)}}>{val!==null?`${val}%`:"—"}</td>;
+                      })}
+                      <td style={{textAlign:"center",fontWeight:700}}>{rowTotal>0?`${rowTotal.toFixed(1)}%`:"—"}</td>
+                    </tr>
+                  );
+                })}
+                {/* Department totals footer row */}
+                <tr style={{background:"var(--s2)",fontWeight:700}}>
+                  <td colSpan={3} style={{textAlign:"right",fontSize:11,textTransform:"uppercase",letterSpacing:".05em",color:"var(--t3)"}}>Dept Total</td>
+                  {depts.map(d=>{
+                    const total=projects.reduce((s,p)=>{const v=getCell(p.id,d);return s+(v||0);},0);
+                    return<td key={d} style={{textAlign:"center"}}>{total>0?`${total.toFixed(1)}%`:"—"}</td>;
+                  })}
+                  <td/>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          {legend}
+        </>
+      )}
+
+      {data.length>0&&view==="departments"&&(
+        <>
+          {/* Summary cards */}
+          <div className="sg" style={{marginBottom:16}}>
+            {deptTotals.sort((a,b)=>b.total-a.total).map(d=>(
+              <div className="sc" key={d.dept}>
+                <div className="sl">{d.dept}</div>
+                <div className="sv" style={{color:"var(--v)",fontSize:20}}>{d.projCount}</div>
+                <div className="sc2 neu">project{d.projCount!==1?"s":""}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Bar chart: department breakdown */}
+          <div className="card" style={{marginBottom:14}}>
+            <div className="card-hd"><div className="card-title">Department Allocation Summary</div></div>
+            <ResponsiveContainer width="100%" height={Math.max(200,depts.length*40)}>
+              <BarChart data={deptTotals.sort((a,b)=>b.total-a.total)} layout="vertical" margin={{left:100,right:20,top:5,bottom:5}}>
+                <CartesianGrid strokeDasharray="3 3" horizontal={false}/>
+                <XAxis type="number" unit="%" domain={[0,"auto"]}/>
+                <YAxis type="category" dataKey="dept" width={95} tick={{fontSize:12}}/>
+                <Tooltip formatter={v=>`${v}%`} labelFormatter={l=>`${l} department`}/>
+                <Bar dataKey="total" fill="var(--sk)" radius={[0,4,4,0]} barSize={22}/>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Matrix table: rows=departments, cols=projects */}
+          <div className="tw" style={{overflowX:"auto"}}>
+            <table className="tbl" style={{fontSize:12}}>
+              <thead>
+                <tr>
+                  <th style={{position:"sticky",left:0,background:"var(--surface)",zIndex:2}}>Department</th>
+                  {projects.map(p=><th key={p.id} style={{minWidth:70,textAlign:"center"}}><div style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:10}}>{p.code}</div><div style={{fontSize:9,color:"var(--t3)",fontWeight:400}}>{p.type}</div></th>)}
+                  <th>Total %</th>
+                  <th># Projects</th>
+                </tr>
+              </thead>
+              <tbody>
+                {depts.map(d=>{
+                  const rowTotal=projects.reduce((s,p)=>{const v=getCell(p.id,d);return s+(v||0);},0);
+                  const projCount=projects.filter(p=>getCell(p.id,d)!==null).length;
+                  return(
+                    <tr key={d}>
+                      <td style={{fontWeight:700,position:"sticky",left:0,background:"var(--surface)",zIndex:1}}>{d}</td>
+                      {projects.map(p=>{
+                        const val=getCell(p.id,d);
+                        return<td key={p.id} style={{textAlign:"center",...cellStyle(val)}}>{val!==null?`${val}%`:"—"}</td>;
+                      })}
+                      <td style={{textAlign:"center",fontWeight:700}}>{rowTotal>0?`${rowTotal.toFixed(1)}%`:"—"}</td>
+                      <td style={{textAlign:"center",fontWeight:600,color:"var(--v)"}}>{projCount}</td>
+                    </tr>
+                  );
+                })}
+                {/* Project totals footer row */}
+                <tr style={{background:"var(--s2)",fontWeight:700}}>
+                  <td style={{textAlign:"right",fontSize:11,textTransform:"uppercase",letterSpacing:".05em",color:"var(--t3)",position:"sticky",left:0,background:"var(--s2)",zIndex:1}}>Project Total</td>
+                  {projects.map(p=>{
+                    const total=depts.reduce((s,d)=>{const v=getCell(p.id,d);return s+(v||0);},0);
+                    return<td key={p.id} style={{textAlign:"center"}}>{total>0?`${total.toFixed(1)}%`:"—"}</td>;
+                  })}
+                  <td/><td/>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          {legend}
+
+          {/* Per-department breakdown cards */}
+          <div style={{marginTop:16}}>
+            <div style={{fontWeight:700,fontSize:15,marginBottom:12}}>Department Detail</div>
+            <div className="g2">
+              {depts.map(d=>{
+                const dProjects=projects.filter(p=>getCell(p.id,d)!==null).map(p=>({...p,pct:getCell(p.id,d)})).sort((a,b)=>b.pct-a.pct);
                 return(
-                  <tr key={p.id}>
-                    <td><span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700}}>{p.code}</span><div style={{fontSize:11,color:"var(--t3)"}}>{p.name}</div></td>
-                    <td>{p.entityCode?<span className="badge bgr2" style={{fontSize:10}}>{p.entityCode}</span>:<span style={{color:"var(--t3)"}}>—</span>}</td>
-                    <td><span className="badge bgr2" style={{fontSize:10}}>{p.type}</span></td>
-                    {depts.map(d=>{
-                      const val=getCell(p.id,d);
-                      return<td key={d} style={{textAlign:"center",...cellStyle(val)}}>{val!==null?`${val}%`:"—"}</td>;
-                    })}
-                    <td style={{textAlign:"center",fontWeight:700}}>{rowTotal>0?`${rowTotal.toFixed(1)}%`:"—"}</td>
-                  </tr>
+                  <div className="card" key={d} style={{margin:0}}>
+                    <div className="card-hd">
+                      <div><div className="card-title">{d}</div><div style={{fontSize:11,color:"var(--t3)"}}>{dProjects.length} project{dProjects.length!==1?"s":""}</div></div>
+                      <span className="badge" style={{background:"var(--vl)",color:"var(--v)"}}>{dProjects.reduce((s,p)=>s+p.pct,0).toFixed(1)}%</span>
+                    </div>
+                    {dProjects.map(p=>(
+                      <div key={p.id} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:"1px solid var(--b)"}}>
+                        <span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:11,minWidth:80}}>{p.code}</span>
+                        <div style={{flex:1}}>
+                          <div className="prog" style={{height:8}}><div className="prog-f" style={{width:`${Math.min(100,p.pct*2)}%`,background:p.pct>=20?"var(--gr)":p.pct>=10?"var(--am)":"var(--v)"}}/></div>
+                        </div>
+                        <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:12,fontWeight:700,minWidth:45,textAlign:"right"}}>{p.pct}%</span>
+                        <span className="badge bgr2" style={{fontSize:9}}>{p.type}</span>
+                      </div>
+                    ))}
+                  </div>
                 );
               })}
-            </tbody>
-          </table>
-        </div>
+            </div>
+          </div>
+        </>
       )}
-      <div style={{marginTop:10,fontSize:11,color:"var(--t3)"}}>
-        <span style={{display:"inline-block",width:12,height:12,background:"#dcfce7",border:"1px solid #86efac",marginRight:4,verticalAlign:"middle"}}/>≥20% &nbsp;
-        <span style={{display:"inline-block",width:12,height:12,background:"#fef9c3",border:"1px solid #fde047",marginRight:4,verticalAlign:"middle"}}/>10–19% &nbsp;
-        <span style={{display:"inline-block",width:12,height:12,background:"#dbeafe",border:"1px solid #93c5fd",marginRight:4,verticalAlign:"middle"}}/>1–9%
-      </div>
+
+      {data.length>0&&view==="employees"&&(
+        <>
+          {/* Employee search/filter */}
+          {(()=>{
+            const empSearch=expandedProj; // reuse state as search filter
+            const uniqueEmps=[...new Map(detail.map(r=>[r.user_id,{id:r.user_id,name:r.user_name,dept:r.dept,type:r.user_type}])).values()];
+            const uniqueProjs=[...new Map(detail.map(r=>[r.project_id,{id:r.project_id,code:r.project_code,name:r.project_name,type:r.project_type}])).values()];
+
+            // Group: per project → employees
+            const projGroups=uniqueProjs.map(p=>{
+              const emps=detail.filter(r=>r.project_id===p.id).sort((a,b)=>Number(b.total_hours)-Number(a.total_hours));
+              const totalHours=emps.reduce((s,e)=>s+Number(e.total_hours),0);
+              return{...p,emps,totalHours};
+            }).sort((a,b)=>b.totalHours-a.totalHours);
+
+            // Group: per employee → projects
+            const empGroups=uniqueEmps.map(u=>{
+              const projs=detail.filter(r=>r.user_id===u.id).sort((a,b)=>Number(b.total_hours)-Number(a.total_hours));
+              const totalHours=projs.reduce((s,p)=>s+Number(p.total_hours),0);
+              const totalDays=projs.reduce((s,p)=>s+Number(p.days_count),0);
+              return{...u,projs,totalHours,totalDays};
+            }).sort((a,b)=>b.totalHours-a.totalHours);
+
+            return(
+              <>
+                {/* KPI cards */}
+                <div className="sg" style={{marginBottom:16}}>
+                  <div className="sc"><div className="sa" style={{background:"var(--v)"}}/><div className="sl">Employees</div><div className="sv" style={{color:"var(--v)"}}>{uniqueEmps.length}</div><div className="sc2 neu">with allocations</div></div>
+                  <div className="sc"><div className="sa" style={{background:"var(--sk)"}}/><div className="sl">Projects</div><div className="sv" style={{color:"var(--sk)"}}>{uniqueProjs.length}</div></div>
+                  <div className="sc"><div className="sa" style={{background:"var(--gr)"}}/><div className="sl">Total Hours</div><div className="sv" style={{color:"var(--gr)"}}>{detail.reduce((s,r)=>s+Number(r.total_hours),0).toFixed(0)}</div></div>
+                  <div className="sc"><div className="sa" style={{background:"var(--am)"}}/><div className="sl">Entries</div><div className="sv" style={{color:"var(--am)"}}>{detail.reduce((s,r)=>s+Number(r.days_count),0)}</div><div className="sc2 neu">timesheet days</div></div>
+                </div>
+
+                {/* Full detail table */}
+                <div className="card" style={{marginBottom:16}}>
+                  <div className="card-hd"><div className="card-title">Employee × Project Breakdown</div><span className="badge bgr2">{detail.length} rows</span></div>
+                  <div className="tw" style={{maxHeight:400,overflowY:"auto"}}>
+                    <table className="tbl" style={{fontSize:12}}>
+                      <thead><tr>
+                        <th>Employee</th><th>Dept</th><th>Type</th>
+                        <th>Project</th><th>Proj Type</th>
+                        <th style={{textAlign:"right"}}>Days</th>
+                        <th style={{textAlign:"right"}}>Alloc</th>
+                        <th style={{textAlign:"right"}}>Hours</th>
+                      </tr></thead>
+                      <tbody>
+                        {detail.sort((a,b)=>a.user_name.localeCompare(b.user_name)||a.project_code.localeCompare(b.project_code)).map((r,i)=>(
+                          <tr key={i}>
+                            <td style={{fontWeight:600}}>{r.user_name}</td>
+                            <td style={{fontSize:11,color:"var(--t2)"}}>{r.dept}</td>
+                            <td><span className="badge bgr2" style={{fontSize:9}}>{r.user_type}</span></td>
+                            <td><span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:11}}>{r.project_code}</span><div style={{fontSize:10,color:"var(--t3)"}}>{r.project_name}</div></td>
+                            <td><span className="badge bgr2" style={{fontSize:9}}>{r.project_type}</span></td>
+                            <td style={{textAlign:"right",fontFamily:"'JetBrains Mono',monospace"}}>{r.days_count}</td>
+                            <td style={{textAlign:"right",fontFamily:"'JetBrains Mono',monospace"}}>{Number(r.total_alloc).toFixed(1)}</td>
+                            <td style={{textAlign:"right",fontFamily:"'JetBrains Mono',monospace",fontWeight:700}}>{Number(r.total_hours).toFixed(1)}h</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Per-project employee cards */}
+                <div style={{fontWeight:700,fontSize:15,marginBottom:12}}>Employees per Project</div>
+                <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:20}}>
+                  {projGroups.map(pg=>(
+                    <div className="card" key={pg.id} style={{margin:0}}>
+                      <div className="card-hd" style={{cursor:"pointer"}} onClick={()=>setExpandedProj(p=>p===pg.id?null:pg.id)}>
+                        <div>
+                          <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            <span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700}}>{pg.code}</span>
+                            <span style={{fontSize:13,color:"var(--t2)"}}>{pg.name}</span>
+                            <span className="badge bgr2" style={{fontSize:9}}>{pg.type}</span>
+                          </div>
+                          <div style={{fontSize:11,color:"var(--t3)",marginTop:2}}>{pg.emps.length} employee{pg.emps.length!==1?"s":""} · {pg.totalHours.toFixed(0)}h total</div>
+                        </div>
+                        <span style={{fontSize:12,color:"var(--t3)",transition:"transform .15s",transform:expandedProj===pg.id?"rotate(90deg)":"none"}}>▶</span>
+                      </div>
+                      {expandedProj===pg.id&&(
+                        <div style={{marginTop:4}}>
+                          {pg.emps.map(e=>(
+                            <div key={e.user_id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:"1px solid var(--b)"}}>
+                              <div className="av" style={{background:aColor(e.user_id),width:28,height:28,fontSize:10}}>{initials(e.user_name)}</div>
+                              <div style={{flex:1,minWidth:0}}>
+                                <div style={{fontWeight:600,fontSize:13}}>{e.user_name}</div>
+                                <div style={{fontSize:11,color:"var(--t3)"}}>{e.dept} · {e.user_type}</div>
+                              </div>
+                              <div style={{textAlign:"right",minWidth:60}}>
+                                <div style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:13}}>{Number(e.total_hours).toFixed(1)}h</div>
+                                <div style={{fontSize:10,color:"var(--t3)"}}>{e.days_count} day{e.days_count!==1?"s":""}</div>
+                              </div>
+                              <div style={{width:80}}>
+                                <div className="prog" style={{height:6}}><div className="prog-f" style={{width:`${Math.min(100,Number(e.total_hours)/pg.totalHours*100)}%`,background:"var(--v)"}}/></div>
+                                <div style={{fontSize:9,color:"var(--t3)",textAlign:"right",marginTop:2}}>{(Number(e.total_hours)/pg.totalHours*100).toFixed(0)}%</div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Per-employee project cards */}
+                <div style={{fontWeight:700,fontSize:15,marginBottom:12}}>Projects per Employee</div>
+                <div className="g2">
+                  {empGroups.map(eg=>(
+                    <div className="card" key={eg.id} style={{margin:0}}>
+                      <div className="card-hd">
+                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          <div className="av" style={{background:aColor(eg.id),width:32,height:32,fontSize:11}}>{initials(eg.name)}</div>
+                          <div><div style={{fontWeight:700,fontSize:14}}>{eg.name}</div><div style={{fontSize:11,color:"var(--t3)"}}>{eg.dept} · {eg.type}</div></div>
+                        </div>
+                        <div style={{textAlign:"right"}}>
+                          <div style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,color:"var(--v)"}}>{eg.totalHours.toFixed(0)}h</div>
+                          <div style={{fontSize:10,color:"var(--t3)"}}>{eg.totalDays} days</div>
+                        </div>
+                      </div>
+                      {eg.projs.map(p=>(
+                        <div key={p.project_id} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:"1px solid var(--b)"}}>
+                          <span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:11,minWidth:80}}>{p.project_code}</span>
+                          <div style={{flex:1}}>
+                            <div className="prog" style={{height:6}}><div className="prog-f" style={{width:`${Math.min(100,Number(p.total_hours)/eg.totalHours*100)}%`,background:Number(p.total_hours)/eg.totalHours>=0.5?"var(--gr)":"var(--v)"}}/></div>
+                          </div>
+                          <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:600,minWidth:50,textAlign:"right"}}>{Number(p.total_hours).toFixed(1)}h</span>
+                          <span style={{fontSize:10,color:"var(--t3)",minWidth:35,textAlign:"right"}}>{p.days_count}d</span>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </>
+            );
+          })()}
+        </>
+      )}
     </div>
   );
 }
@@ -3378,6 +4033,28 @@ function Settings({user,users,setUsers,projects,setProjects,roles,setRoles,activ
   function addStepCondition(idx){setWfForm(f=>({...f,steps:f.steps.map((s,i)=>i===idx?{...s,conditions:[...(s.conditions||[]),{field:'days_count',operator:'>=',value:3}]}:s)}));}
   function removeStepCondition(sIdx,cIdx){setWfForm(f=>({...f,steps:f.steps.map((s,i)=>i===sIdx?{...s,conditions:s.conditions.filter((_,ci)=>ci!==cIdx)}:s)}));}
   function updateStepCondition(sIdx,cIdx,field,val){setWfForm(f=>({...f,steps:f.steps.map((s,i)=>i===sIdx?{...s,conditions:s.conditions.map((c,ci)=>ci===cIdx?{...c,[field]:val}:c)}:s)}));}
+
+  // ── Pending reminder settings ──
+  const [pendingReminderDays,setPendingReminderDays]=useState(3);
+  const [staleInfo,setStaleInfo]=useState("");
+  useEffect(()=>{
+    companyAPI.getSettings().then(c=>{if(c.pending_reminder_days) setPendingReminderDays(c.pending_reminder_days);}).catch(()=>{});
+  },[]);
+  const savePendingDays=async()=>{
+    try{
+      await fetch(`${process.env.REACT_APP_API_URL||"/api"}/company-settings/pending-reminder`,{method:"PUT",headers:{"Content-Type":"application/json","Authorization":`Bearer ${localStorage.getItem("token")}`},body:JSON.stringify({pendingReminderDays})});
+      toast("Reminder threshold saved.","success");
+    }catch(e){toast("Failed: "+e.message);}
+  };
+  const sendStaleReminders=async()=>{
+    setStaleInfo("Sending...");
+    try{
+      const r=await fetch(`${process.env.REACT_APP_API_URL||"/api"}/requests/send-stale-reminders`,{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${localStorage.getItem("token")}`}});
+      const d=await r.json();
+      setStaleInfo(`${d.staleCount} stale request${d.staleCount!==1?"s":""}, ${d.remindersSent} reminder${d.remindersSent!==1?"s":""} sent.`);
+      toast(`${d.remindersSent} reminder(s) sent.`,"success");
+    }catch(e){setStaleInfo("");toast("Failed: "+e.message);}
+  };
 
   // ── CSV Import state ──
   const [importModal,setImportModal]=useState(null); // null | "users" | "projects"
@@ -3875,7 +4552,21 @@ function Settings({user,users,setUsers,projects,setProjects,roles,setRoles,activ
           <div className="pgrid">{PERMISSIONS_LIST.map(p=>{const on=isAll||rDef.permissions.includes(p.key);return(<div className="pi" key={p.key} style={{opacity:isAll&&p.key!=="all"?.55:1}}><div><div style={{fontSize:12,fontWeight:600,color:"var(--t)"}}>{p.label}</div><div className="pkey">{p.key}</div></div><label className="sw"><input type="checkbox" checked={on} disabled={isAll&&p.key!=="all"} onChange={()=>{if(isAll&&p.key!=="all")return;setRoles(prev=>({...prev,[rKey]:{...prev[rKey],permissions:togglePerm(prev[rKey].permissions,p.key)}}));}}/><span className="sldr"/></label></div>);})}</div>
         </div>);})}
       </div>)}
-      {tab==="system"&&(<div className="g2"><div className="card"><div className="card-title" style={{marginBottom:13}}>Scheduling Rules</div>{[["Field rotation cycle","14d ON / 14d OFF"],["Annual leave advance","15 days min"],["Max AL per request","7 days (field)"],["AL carry forward","10 days max"],["Overtime (field)","192h/shift"],["Overtime (office)","48h/week"],["Working hours (field)","12h/day"],["Working hours (office)","8h/day"]].map(([k,v])=>(<div key={k} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid var(--b)",fontSize:13}}><span style={{color:"var(--t2)",fontWeight:500}}>{k}</span><span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,color:"var(--v)",fontWeight:600}}>{v}</span></div>))}</div>
+      {tab==="system"&&(<div className="g2"><div className="card"><div className="card-title" style={{marginBottom:13}}>⏰ Pending Request Reminders</div>
+        <div style={{fontSize:13,color:"var(--t2)",marginBottom:12}}>Notify approvers when requests remain pending beyond the configured threshold.</div>
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
+          <div className="fgrp" style={{flex:"0 0 120px"}}>
+            <label className="flbl">Reminder after (days)</label>
+            <input type="number" className="fi" min={1} max={30} value={pendingReminderDays} onChange={e=>setPendingReminderDays(Math.max(1,Number(e.target.value)||3))}/>
+          </div>
+          <div style={{flex:1,fontSize:12,color:"var(--t3)"}}>Approvers will be notified about requests pending longer than <b style={{color:"var(--v)"}}>{pendingReminderDays} day{pendingReminderDays!==1?"s":""}</b>.</div>
+        </div>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <button className="btn bp bsm" onClick={savePendingDays}>Save</button>
+          <button className="btn bo bsm" onClick={sendStaleReminders}>📧 Send Reminders Now</button>
+          {staleInfo&&<span style={{fontSize:12,color:"var(--t3)"}}>{staleInfo}</span>}
+        </div>
+      </div><div className="card"><div className="card-title" style={{marginBottom:13}}>Scheduling Rules</div>{[["Field rotation cycle","14d ON / 14d OFF"],["Annual leave advance","15 days min"],["Max AL per request","7 days (field)"],["AL carry forward","10 days max"],["Working hours (field)","12h/day"],["Working hours (office)","8h/day"]].map(([k,v])=>(<div key={k} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid var(--b)",fontSize:13}}><span style={{color:"var(--t2)",fontWeight:500}}>{k}</span><span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,color:"var(--v)",fontWeight:600}}>{v}</span></div>))}</div>
         <div><div className="card" style={{marginBottom:13}}><div className="card-title" style={{marginBottom:12}}>Public Holidays</div>{holidays.map(h=>(<div key={h.id} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid var(--b)",fontSize:13}}><span style={{color:"var(--t2)"}}>{new Date(h.date).toLocaleDateString("en-GB",{weekday:"short",day:"2-digit",month:"long",year:"numeric"})}</span><span style={{fontSize:12,color:"var(--t3)",fontWeight:500}}>{h.name}</span></div>))}{holidays.length===0&&<div style={{fontSize:12,color:"var(--t3)",padding:"8px 0"}}>No holidays configured</div>}</div>
         <div className="card" style={{marginBottom:13}}>
           <PushSettingsCard/>
@@ -4003,6 +4694,745 @@ const ACTION_LABELS = {
   timesheet_reset_draft:    {label:"TS Reset Draft",      color:"var(--t3)",  ico:"↩"},
   balance_adjusted:         {label:"Balance Adjusted",    color:"var(--sk)",  ico:"⚖️"},
 };
+
+// ── NEW: ERP Duty Rota ── Constants & Helpers ──────────────────────────────
+const ERP_ROLES_LIST = ["Crisis Management Coordinator","Drilling Crisis Coordinator","Field Manager (CPF)","DSV","Media","Reporting Team"];
+const ERP_STATUS_VALUES = ["OFFICE","ON_SITE","OFF","FIELD"];
+const ERP_STATUS_COLORS = {OFFICE:"#3b82f6",ON_SITE:"#f59e0b",OFF:"#94a3b8",FIELD:"#10b981"};
+const ERP_STATUS_LABELS = {OFFICE:"Office",ON_SITE:"On Site",OFF:"Off",FIELD:"Field"};
+const ERP_DUTY_SLOTS = [
+  {key:"crisisCoord",label:"Crisis Management Coordinator",ico:"🎯",critical:true},
+  {key:"drillingCrisisCoord",label:"Drilling Crisis Coordinator",ico:"⛏️",critical:true},
+  {key:"cpfContact",label:"CPF Contact",ico:"🏭",critical:false},
+  {key:"drillingContact",label:"Drilling Site Contact",ico:"🔩",critical:false},
+  {key:"media",label:"Media",ico:"📡",critical:false},
+];
+const daysUntilFriday = () => { const d = new Date().getDay(); const diff = (5-d+7)%7; return diff===0?7:diff; };
+
+const ERP_SEED_MEMBERS = [
+  {initials:"RL", name:"Renaud Laneyrie",     func:"Country Manager",             erpRole:"Crisis Management Coordinator", phone:"29 902 442", status:"OFFICE"},
+  {initials:"ABA",name:"Afif BelHaj Ali",     func:"Drilling Superintendent",     erpRole:"Drilling Crisis Coordinator",   phone:"29 371 944", status:"OFFICE"},
+  {initials:"AH", name:"Amine Hamza",         func:"Production & Projects Mgr",   erpRole:"Crisis Management Coordinator", phone:"29 696 780", status:"OFFICE"},
+  {initials:"MhH",name:"Mehdi Hajji",         func:"Field Manager",               erpRole:"Field Manager (CPF)",           phone:"29 683 812", status:"ON_SITE"},
+  {initials:"MAA",name:"Med Amine Abdelkefi", func:"Field Manager",               erpRole:"Field Manager (CPF)",           phone:"27 655 544", status:"ON_SITE"},
+  {initials:"AN", name:"Arbi Noura",          func:"DSV",                         erpRole:"DSV",                           phone:"29 526 207", status:"OFF"},
+  {initials:"HM", name:"Hamid Messalti",      func:"DSV (Drilling)",              erpRole:"DSV",                           phone:"—",           status:"ON_SITE"},
+  {initials:"MH", name:"Mohamed Hamda",       func:"Finance Manager",             erpRole:"Media",                         phone:"28 476 039", status:"OFFICE"},
+  {initials:"IN", name:"Iman Nahlaoui",       func:"HR & Communications Mgr",     erpRole:"Reporting Team",                phone:"25 457 777", status:"OFF"},
+  {initials:"CB", name:"Chourouk Bouchkara",  func:"Legal & Contracts Coord.",     erpRole:"Reporting Team",                phone:"29 696 213", status:"OFFICE"},
+  {initials:"MrH",name:"Mariem Hached",       func:"Drilling Engineer",           erpRole:"Reporting Team",                phone:"29 683 810", status:"OFFICE"},
+  {initials:"AS", name:"Aymen Saddoud",       func:"Drilling Engineer",           erpRole:"Reporting Team",                phone:"29 902 435", status:"OFFICE"},
+  {initials:"MR", name:"Mariam Rafaoui",      func:"Office Administrator",        erpRole:"Reporting Team",                phone:"29 697 641", status:"OFFICE"},
+];
+
+const ERP_SEED_WEEKS = [
+  {id:1,label:"Week #1",start:"2026-03-28",end:"2026-04-03",crisisCoord:"RL",drillingCrisisCoord:null,cpfContact:"MAA",drillingContact:"HM",media:"MH"},
+  {id:2,label:"Week #2",start:"2026-04-04",end:"2026-04-10",crisisCoord:"AH",drillingCrisisCoord:"ABA",cpfContact:"MhH",drillingContact:"AN",media:"MH"},
+];
+
+const ERP_MSG_TEMPLATES = {
+  rotation_reminder: (curr,next) => ({
+    subject:"ERP Duty Rotation Reminder",
+    body:`Reminder: Current duty rotation (${curr?.start||"N/A"} to ${curr?.end||"N/A"}) ends soon.\nNext rotation starts ${next?.start||"TBD"}.\nPlease ensure a smooth handover.`
+  }),
+  assignment: (member,slot,week) => ({
+    subject:"ERP Duty Assignment Notice",
+    body:`You have been assigned to ${slot} duty for the period ${week?.start||"TBD"} — ${week?.end||"TBD"}.\nPlease confirm your availability.`
+  }),
+  status_alert: (member,oldS,newS) => ({
+    subject:"ERP Roster Status Change",
+    body:`${member?.name||"Team member"} status changed from ${ERP_STATUS_LABELS[oldS]||oldS} to ${ERP_STATUS_LABELS[newS]||newS}.\nPlease update your planning accordingly.`
+  }),
+};
+
+// ── NEW: ERP Duty Rota ── Main Component ────────────────────────────────────
+function ERPDutyRotaView({user, users, roles, requests=[]}) {
+  const [erpTab, setErpTab] = useState("dashboard");
+  const isAd = hasPerm(roles, user.role, "all");
+  const hasErpEdit = hasPerm(roles, user.role, "erp_rota_edit");
+  const hasErpNotify = hasPerm(roles, user.role, "erp_rota_notify");
+  const canEditWeeks = isAd || hasErpEdit;
+  const canEditStatus = isAd || hasErpEdit;
+  const canAddMembers = isAd || hasErpEdit;
+  const canSendNotif = isAd || hasErpNotify;
+  const canEmergency = isAd || hasErpNotify;
+  const canEditSettings = isAd;
+
+  // ── ERP Roster: loaded from API, shared across all users
+  const [erpRosterRaw, setErpRosterRaw] = useState([]);
+  const [rotWeeks, setRotWeeks] = useState([]);
+  const [notifLog, setNotifLog] = useState([]);
+  const [erpLoading, setErpLoading] = useState(true);
+
+  // Load ERP data from API on mount
+  const loadErpData = useCallback(async () => {
+    setErpLoading(true);
+    try {
+      const [roster, weeks, notifs] = await Promise.all([
+        erpRosterAPI.getAll().catch(e => { console.error('[ERP] roster load:', e); return []; }),
+        erpWeeksAPI.getAll().catch(e => { console.error('[ERP] weeks load:', e); return []; }),
+        erpNotificationsAPI.getAll().catch(e => { console.error('[ERP] notifs load:', e); return []; }),
+      ]);
+      setErpRosterRaw(Array.isArray(roster) ? roster : []);
+      // Map DB column names to frontend keys
+      setRotWeeks((Array.isArray(weeks) ? weeks : []).map(w => ({
+        id: w.id, label: w.label, start: w.start_date?.slice(0,10) || w.start, end: w.end_date?.slice(0,10) || w.end,
+        crisisCoord: w.crisis_coord, drillingCrisisCoord: w.drilling_crisis_coord,
+        cpfContact: w.cpf_contact, drillingContact: w.drilling_contact, media: w.media
+      })));
+      setNotifLog((Array.isArray(notifs) ? notifs : []).map(n => ({
+        id: n.id, time: n.created_at, subject: n.subject, channel: n.channel,
+        count: n.recipient_count, status: n.status, isEmergency: n.is_emergency
+      })));
+    } catch (e) { console.error('[ERP] load error:', e); }
+    setErpLoading(false);
+  }, []);
+  useEffect(() => { loadErpData(); }, [loadErpData]);
+
+  // Derive erpMembers from API roster data + platform users
+  const erpMembers = useMemo(() => {
+    return erpRosterRaw.map(r => {
+      const u = users.find(u => u.id === r.user_id);
+      if (!u) return null;
+      return { id: u.id, name: r.name || u.name, initials: initials(r.name || u.name), func: r.dept || u.dept || "", erpRole: r.erp_role || "", phone: r.phone || u.phone || "", email: r.email || u.email || "", status: u.type === "field" ? "FIELD" : "OFFICE", notes: r.notes || "", color: aColor(u.id), userId: u.id };
+    }).filter(Boolean);
+  }, [erpRosterRaw, users]);
+
+  // ── Settings (local only — admin-specific config)
+  const [erpSettings, setErpSettings] = useState(() => {
+    const saved = localStorage.getItem("maz_erp_settings");
+    if (saved) return JSON.parse(saved);
+    return {backendUrl:"http://localhost:3001",reminderDay:"thursday",reminderChannel:"email",smtpHost:"",smtpUser:"",smtpPass:"",twilioSid:"",twilioToken:"",twilioFrom:"",twilioWa:""};
+  });
+  useEffect(() => { localStorage.setItem("maz_erp_settings", JSON.stringify(erpSettings)); }, [erpSettings]);
+
+  // Helpers — lookup by userId (number) or legacy initials (string)
+  const getMember = (key) => {
+    if (!key) return null;
+    if (typeof key === "number") return erpMembers.find(m => m.id === key);
+    return erpMembers.find(m => m.initials === key || m.name === key || String(m.id) === String(key));
+  };
+  const today = new Date().toISOString().split("T")[0];
+  const activeWeek = rotWeeks.find(w => w.start <= today && w.end >= today) || rotWeeks[0];
+  const nextWeek = rotWeeks.find(w => w.start > today);
+  const activeCnt = erpMembers.filter(m => m.status !== "OFF").length;
+  const onSiteCnt = erpMembers.filter(m => m.status === "ON_SITE" || m.status === "FIELD").length;
+  const offCnt = erpMembers.filter(m => m.status === "OFF").length;
+
+  // ── Leave detection: check if an ERP member is on approved leave for a given date range
+  const LEAVE_TYPES = ["Annual Leave","Sick Leave","Compassionate","Recovery Leave","Remote Work"];
+  const isOnLeave = useCallback((memberKey, dateStart, dateEnd) => {
+    // memberKey can be userId (number) or initials (string)
+    const mem = getMember(memberKey);
+    if (!mem) return null;
+    const uid = mem.userId || mem.id;
+    const start = dateStart || today;
+    const end = dateEnd || today;
+    return requests.find(r =>
+      r.userId === uid &&
+      LEAVE_TYPES.includes(r.type) &&
+      (r.status === "Approved" || r.status === "Pending") &&
+      r.start <= end && r.end >= start
+    ) || null;
+  }, [requests, erpMembers, today]);
+
+  const TABS = [
+    {key:"dashboard",ico:"📊",label:"Dashboard"},
+    {key:"rotation",ico:"🔄",label:"Rotation"},
+    {key:"members",ico:"👥",label:"Members"},
+    {key:"notify",ico:"🔔",label:"Notify"},
+    {key:"settings",ico:"⚙️",label:"Settings"},
+  ];
+
+  // ── NEW: ERP Duty Rota ── Dashboard Sub-tab ───────────────────────────────
+  const renderDashboard = () => (
+    <div>
+      <div className="sg">
+        <div className="sc"><div className="sa" style={{background:"#10b981"}}/><div className="sl">Active Personnel</div><div className="sv" style={{color:"#10b981"}}>{activeCnt}</div><div className="sc2 neu">of {erpMembers.length}</div></div>
+        <div className="sc"><div className="sa" style={{background:"#f59e0b"}}/><div className="sl">On Site / Field</div><div className="sv" style={{color:"#f59e0b"}}>{onSiteCnt}</div></div>
+        <div className="sc"><div className="sa" style={{background:"#94a3b8"}}/><div className="sl">Off Duty</div><div className="sv" style={{color:"#94a3b8"}}>{offCnt}</div></div>
+        <div className="sc"><div className="sa" style={{background:"#E8750A"}}/><div className="sl">Days to Handover</div><div className="sv" style={{color:"#E8750A"}}>{daysUntilFriday()}</div><div className="sc2 neu">Friday EOB</div></div>
+      </div>
+      <div className="g2" style={{marginTop:16}}>
+        <div className="card" style={{flex:2}}>
+          <div className="card-hd"><div><div className="card-title">Current Duty Rotation</div><div style={{fontSize:11,color:"var(--t3)",fontFamily:"'JetBrains Mono',monospace"}}>{activeWeek?.start} → {activeWeek?.end}</div></div><span className="badge" style={{background:"#dcfce7",color:"#16a34a"}}>ACTIVE</span></div>
+          {ERP_DUTY_SLOTS.map(slot => {
+            const m = getMember(activeWeek?.[slot.key]);
+            const leaveReq = m ? isOnLeave(activeWeek?.[slot.key], activeWeek?.start, activeWeek?.end) : null;
+            return (
+              <div key={slot.key} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:10,marginBottom:6,background:leaveReq?"#fef2f2":slot.critical?"#fffbeb":"var(--bg)",border:leaveReq?"2px solid #ef4444":"1px solid var(--b)"}}>
+                <span style={{fontSize:18,width:28,textAlign:"center"}}>{slot.ico}</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:11,color:"var(--t3)",fontWeight:600}}>{slot.label}</div>
+                  {m ? (
+                    <>
+                      <div style={{display:"flex",alignItems:"center",gap:8,marginTop:2}}>
+                        <div className="av" style={{background:leaveReq?"#ef4444":m.color||"#7c3aed",width:26,height:26,fontSize:10,borderRadius:6}}>{m.initials}</div>
+                        <span style={{fontWeight:700,fontSize:13,textDecoration:leaveReq?"line-through":"none",color:leaveReq?"#ef4444":"inherit"}}>{m.name}</span>
+                        <span className="badge" style={{background:ERP_STATUS_COLORS[m.status]+"22",color:ERP_STATUS_COLORS[m.status],fontSize:10}}>{ERP_STATUS_LABELS[m.status]}</span>
+                      </div>
+                      {leaveReq && (
+                        <div style={{display:"flex",alignItems:"center",gap:6,marginTop:4,padding:"4px 8px",borderRadius:6,background:"#fef2f2",border:"1px solid #fecaca"}}>
+                          <span style={{fontSize:14}}>⚠️</span>
+                          <span style={{fontSize:11,fontWeight:700,color:"#dc2626"}}>ON LEAVE ({leaveReq.type}{leaveReq.status==="Pending"?" — pending":""})</span>
+                          <span style={{fontSize:10,fontFamily:"'JetBrains Mono',monospace",color:"#ef4444"}}>{leaveReq.start} → {leaveReq.end}</span>
+                          <span style={{fontSize:11,fontWeight:700,color:"#dc2626",marginLeft:"auto"}}>Assign replacement!</span>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div style={{color:"#ef4444",fontWeight:600,fontSize:12,marginTop:2}}>⚠ Not assigned</div>
+                  )}
+                </div>
+                {m && m.phone && m.phone !== "—" && (
+                  <a href={`tel:${m.phone.replace(/\s/g,"")}`} style={{fontFamily:"'JetBrains Mono',monospace",fontSize:12,color:"var(--v)",textDecoration:"none"}}>📞 {m.phone}</a>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div className="card">
+          <div className="card-hd"><div className="card-title">Personnel Status</div></div>
+          <div style={{maxHeight:340,overflowY:"auto"}}>
+            {erpMembers.map(m => {
+              const lr = isOnLeave(m.id);
+              return (
+                <div key={m.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:"1px solid var(--b)",background:lr?"#fef2f222":"transparent"}}>
+                  <div className="av" style={{background:lr?"#ef4444":m.color||"#7c3aed",width:30,height:30,fontSize:11,borderRadius:8}}>{m.initials}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:600,fontSize:13}}>{m.name}</div>
+                    <div style={{fontSize:11,color:"var(--t3)"}}>{m.func}</div>
+                    {lr && <div style={{fontSize:10,fontWeight:700,color:"#dc2626"}}>🌴 {lr.type} ({lr.start} → {lr.end})</div>}
+                  </div>
+                  {lr ? (
+                    <span className="badge" style={{background:"#fef2f2",color:"#dc2626",fontSize:10}}>On Leave</span>
+                  ) : (
+                    <span className="badge" style={{background:ERP_STATUS_COLORS[m.status]+"22",color:ERP_STATUS_COLORS[m.status],fontSize:10}}>{ERP_STATUS_LABELS[m.status]}</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+      {/* Emergency strip */}
+      <div style={{marginTop:16,padding:"18px 24px",borderRadius:14,background:"linear-gradient(135deg,#991b1b,#dc2626)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div>
+          <div style={{fontWeight:700,fontSize:14}}>Emergency Line</div>
+          <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:24,fontWeight:700,marginTop:2}}>29 324 484</div>
+        </div>
+        <button onClick={() => setErpTab("notify")} style={{padding:"10px 20px",borderRadius:10,border:"none",background:"#fff",color:"#dc2626",fontWeight:700,fontSize:13,cursor:"pointer"}}>🚨 Broadcast Alert</button>
+      </div>
+    </div>
+  );
+
+  // ── NEW: ERP Duty Rota ── Rotation Sub-tab ────────────────────────────────
+  const [weekModal, setWeekModal] = useState(null);
+  const [weekForm, setWeekForm] = useState({label:"",start:"",end:"",crisisCoord:"",drillingCrisisCoord:"",cpfContact:"",drillingContact:"",media:""});
+
+  const openWeekModal = (w) => {
+    if (w) setWeekForm({label:w.label,start:w.start,end:w.end,crisisCoord:w.crisisCoord||"",drillingCrisisCoord:w.drillingCrisisCoord||"",cpfContact:w.cpfContact||"",drillingContact:w.drillingContact||"",media:w.media||""});
+    else setWeekForm({label:`Week #${rotWeeks.length+1}`,start:"",end:"",crisisCoord:"",drillingCrisisCoord:"",cpfContact:"",drillingContact:"",media:""});
+    setWeekModal(w || {id:"new"});
+  };
+
+  const saveWeek = async () => {
+    if (!weekForm.start || !weekForm.end) { toast("Start and end dates required."); return; }
+    try {
+      if (weekModal.id === "new") {
+        const created = await erpWeeksAPI.create(weekForm);
+        setRotWeeks(p => [...p, {id:created.id,label:created.label,start:created.start_date?.slice(0,10),end:created.end_date?.slice(0,10),crisisCoord:created.crisis_coord,drillingCrisisCoord:created.drilling_crisis_coord,cpfContact:created.cpf_contact,drillingContact:created.drilling_contact,media:created.media}]);
+      } else {
+        const updated = await erpWeeksAPI.update(weekModal.id, weekForm);
+        setRotWeeks(p => p.map(w => w.id === weekModal.id ? {id:updated.id,label:updated.label,start:updated.start_date?.slice(0,10),end:updated.end_date?.slice(0,10),crisisCoord:updated.crisis_coord,drillingCrisisCoord:updated.drilling_crisis_coord,cpfContact:updated.cpf_contact,drillingContact:updated.drilling_contact,media:updated.media} : w));
+      }
+      setWeekModal(null);
+      toast("Week saved.","success");
+    } catch (e) { toast("Failed to save week: " + e.message); }
+  };
+
+  const deleteWeek = async (id) => {
+    if (!window.confirm("Delete this rotation week?")) return;
+    try {
+      await erpWeeksAPI.delete(id);
+      setRotWeeks(p => p.filter(w => w.id !== id));
+      toast("Week deleted.","success");
+    } catch (e) { toast("Failed to delete week: " + e.message); }
+  };
+
+  const renderRotation = () => (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <div style={{fontSize:15,fontWeight:700}}>Rotation Week Planner</div>
+        {canEditWeeks ? (
+          <button className="btn bp" onClick={() => openWeekModal(null)}>+ Add Week</button>
+        ) : (
+          <span className="badge" style={{background:"#f1f5f9",color:"var(--t3)"}}>🔒 Read-only</span>
+        )}
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        {rotWeeks.map(w => {
+          const isActive = activeWeek?.id === w.id;
+          return (
+            <div key={w.id} className="card" style={{border:isActive?"2px solid #E8750A":"1px solid var(--b)",margin:0}}>
+              <div className="card-hd">
+                <div>
+                  <div className="card-title">{w.label}</div>
+                  <div style={{fontSize:12,color:"var(--t3)",fontFamily:"'JetBrains Mono',monospace"}}>{w.start} → {w.end}</div>
+                </div>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  {isActive && <span className="badge" style={{background:"#dcfce7",color:"#16a34a"}}>ACTIVE</span>}
+                  {canEditWeeks && (
+                    <>
+                      <button className="btn bo" onClick={() => openWeekModal(w)}>Edit</button>
+                      <button className="btn bo" style={{color:"var(--re)"}} onClick={() => deleteWeek(w.id)}>Delete</button>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:8,paddingTop:8}}>
+                {ERP_DUTY_SLOTS.map(slot => {
+                  const m = getMember(w[slot.key]);
+                  const lr = m ? isOnLeave(w[slot.key], w.start, w.end) : null;
+                  return (
+                    <div key={slot.key} style={{padding:"6px 12px",borderRadius:8,background:lr?"#fef2f2":"var(--bg)",border:lr?"2px solid #ef4444":"1px solid var(--b)",display:"flex",alignItems:"center",gap:6,fontSize:12}}>
+                      <span>{slot.ico}</span>
+                      {m ? (
+                        <>
+                          <div className="av" style={{background:lr?"#ef4444":m.color||"#7c3aed",width:20,height:20,fontSize:8,borderRadius:4}}>{m.initials}</div>
+                          <span style={{fontWeight:600,textDecoration:lr?"line-through":"none",color:lr?"#ef4444":"inherit"}}>{m.name}</span>
+                          {lr && <span style={{fontSize:10,fontWeight:700,color:"#dc2626"}} title={`${lr.type}: ${lr.start} → ${lr.end}`}>⚠️ ON LEAVE</span>}
+                        </>
+                      ) : (
+                        <span style={{color:"#ef4444",fontWeight:600}}>Unassigned</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+        {rotWeeks.length === 0 && <div className="empty"><div className="empty-ico">🔄</div>No rotation weeks configured</div>}
+      </div>
+
+      {weekModal && (
+        <div className="mo" onClick={e=>e.target.className==="mo"&&setWeekModal(null)}>
+          <div className="md">
+            <div className="md-title">{weekModal.id === "new" ? "Add Week" : "Edit Week"}</div>
+            <div style={{display:"flex",flexDirection:"column",gap:14}}>
+              <div className="fgrp"><label className="flbl">Label</label><input className="fi" value={weekForm.label} onChange={e => setWeekForm(f => ({...f,label:e.target.value}))}/></div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                <div className="fgrp"><label className="flbl">Start Date</label><input type="date" className="fi" value={weekForm.start} onChange={e => setWeekForm(f => ({...f,start:e.target.value}))}/></div>
+                <div className="fgrp"><label className="flbl">End Date</label><input type="date" className="fi" value={weekForm.end} onChange={e => setWeekForm(f => ({...f,end:e.target.value}))}/></div>
+              </div>
+              {ERP_DUTY_SLOTS.map(slot => (
+                <div className="fgrp" key={slot.key}>
+                  <label className="flbl">{slot.ico} {slot.label}</label>
+                  <select className="fi" value={weekForm[slot.key]} onChange={e => setWeekForm(f => ({...f,[slot.key]:e.target.value}))}>
+                    <option value="">— Unassigned —</option>
+                    {erpMembers.map(m => <option key={m.id} value={m.id}>{m.name} — {m.erpRole || m.func}</option>)}
+                  </select>
+                </div>
+              ))}
+            </div>
+            <div className="md-footer">
+              <button className="btn bo" onClick={() => setWeekModal(null)}>Cancel</button>
+              <button className="btn bp" onClick={saveWeek}>Save Week</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  // ── NEW: ERP Duty Rota ── Members Sub-tab ─────────────────────────────────
+  const [memSearch, setMemSearch] = useState("");
+  const [memFilter, setMemFilter] = useState("All");
+  const [memModal, setMemModal] = useState(null); // null | {id:"new"} | {id: userId}
+  const [memForm, setMemForm] = useState({userId:"",erpRole:"",notes:""});
+
+  // Available employees not yet in ERP roster
+  const rosterUserIds = new Set(erpRosterRaw.map(r => r.user_id));
+  const availableEmployees = users.filter(u => u.active && !rosterUserIds.has(u.id));
+
+  const filteredMembers = erpMembers.filter(m => {
+    if (memFilter !== "All" && m.status !== memFilter) return false;
+    if (memSearch && !m.name.toLowerCase().includes(memSearch.toLowerCase()) && !m.initials.toLowerCase().includes(memSearch.toLowerCase())) return false;
+    return true;
+  });
+
+  const openMemModal = (m) => {
+    if (m) setMemForm({userId:m.id,erpRole:m.erpRole||"",notes:m.notes||""});
+    else setMemForm({userId:"",erpRole:"",notes:""});
+    setMemModal(m ? {id:m.id} : {id:"new"});
+  };
+
+  const saveMember = async () => {
+    try {
+      if (memModal.id === "new") {
+        if (!memForm.userId) { toast("Select an employee."); return; }
+        const created = await erpRosterAPI.add({userId:memForm.userId,erpRole:memForm.erpRole,notes:memForm.notes});
+        const u = users.find(x => x.id === memForm.userId);
+        if (u) setErpRosterRaw(p => [...p, {...created, name:u.name, email:u.email, phone:u.phone, dept:u.dept, type:u.type}]);
+      } else {
+        await erpRosterAPI.update(memModal.id, {erpRole:memForm.erpRole,notes:memForm.notes});
+        setErpRosterRaw(p => p.map(r => r.user_id === memModal.id ? {...r,erp_role:memForm.erpRole,notes:memForm.notes} : r));
+      }
+      setMemModal(null);
+      toast("Member saved.","success");
+    } catch (e) { toast("Failed to save member: " + e.message); }
+  };
+
+  const deleteMember = async (id) => {
+    if (!window.confirm("Remove this ERP member?")) return;
+    try {
+      await erpRosterAPI.remove(id);
+      setErpRosterRaw(p => p.filter(r => r.user_id !== id));
+      toast("Member removed.","success");
+    } catch (e) { toast("Failed to remove member: " + e.message); }
+  };
+
+  const renderMembers = () => (
+    <div>
+      <div style={{display:"flex",gap:12,alignItems:"center",marginBottom:16,flexWrap:"wrap"}}>
+        <input className="fi" placeholder="Search members..." value={memSearch} onChange={e => setMemSearch(e.target.value)} style={{maxWidth:260}}/>
+        {["All","OFFICE","ON_SITE","OFF","FIELD"].map(f => (
+          <button key={f} className={memFilter===f?"btn bp":"btn bo"} onClick={() => setMemFilter(f)} style={{fontSize:12,padding:"6px 14px"}}>{f === "All" ? "All" : ERP_STATUS_LABELS[f]}</button>
+        ))}
+        <div style={{flex:1}}/>
+        {canAddMembers ? (
+          <button className="btn bp" onClick={() => openMemModal(null)}>+ Add Employee</button>
+        ) : (
+          <span className="badge" style={{background:"#f1f5f9",color:"var(--t3)"}}>🔒 Read-only</span>
+        )}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))",gap:14}}>
+        {filteredMembers.map(m => (
+          <div key={m.id} className="card" style={{margin:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:12}}>
+              <div className="av" style={{background:m.color||"#7c3aed",width:42,height:42,fontSize:14,borderRadius:10}}>{m.initials}</div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontWeight:700,fontSize:14}}>{m.name}</div>
+                <div style={{fontSize:11,color:"var(--t3)"}}>{m.func}</div>
+                <div style={{fontSize:11,color:"var(--v)",fontWeight:600}}>{m.erpRole}</div>
+              </div>
+              <span className="badge" style={{background:ERP_STATUS_COLORS[m.status]+"22",color:ERP_STATUS_COLORS[m.status]}}>{ERP_STATUS_LABELS[m.status]}</span>
+            </div>
+            {m.notes && <div style={{marginTop:8,padding:"4px 10px",borderRadius:6,background:"#fffbeb",color:"#92400e",fontSize:11,fontWeight:500}}>📌 {m.notes}</div>}
+            <div style={{display:"flex",gap:6,marginTop:10,borderTop:"1px solid var(--b)",paddingTop:10}}>
+              {m.phone && m.phone !== "—" && <a href={`tel:${m.phone.replace(/\s/g,"")}`} className="btn bo" style={{fontSize:11,textDecoration:"none"}}>📞 {m.phone}</a>}
+              {m.email && <a href={`mailto:${m.email}`} className="btn bo" style={{fontSize:11,textDecoration:"none"}}>✉ Email</a>}
+              <div style={{flex:1}}/>
+              {canAddMembers && <button className="btn bo" style={{fontSize:11}} onClick={() => openMemModal(m)}>Edit</button>}
+              {canAddMembers && <button className="btn bo" style={{fontSize:11,color:"var(--re)"}} onClick={() => deleteMember(m.id)}>Remove</button>}
+            </div>
+          </div>
+        ))}
+      </div>
+      {filteredMembers.length === 0 && <div className="empty"><div className="empty-ico">👥</div>No members found</div>}
+
+      {memModal && (
+        <div className="mo" onClick={e=>e.target.className==="mo"&&setMemModal(null)}>
+          <div className="md">
+            <div className="md-title">{memModal.id === "new" ? "Add Employee to ERP Roster" : "Edit ERP Member"}</div>
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              {memModal.id === "new" ? (
+                <div className="fgrp">
+                  <label className="flbl">Select Employee <span style={{color:"var(--re)"}}>*</span></label>
+                  <select className="fi" value={memForm.userId} onChange={e => setMemForm(f => ({...f,userId:Number(e.target.value)}))}>
+                    <option value="">— Choose from employees —</option>
+                    {availableEmployees.map(u => <option key={u.id} value={u.id}>{u.name} — {u.dept||"No dept"} ({u.type})</option>)}
+                  </select>
+                  <div style={{fontSize:11,color:"var(--t3)",marginTop:4}}>{availableEmployees.length} employees available</div>
+                </div>
+              ) : (
+                <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:10,background:"var(--bg)",border:"1px solid var(--b)"}}>
+                  {(() => { const m = erpMembers.find(x => x.id === memModal.id); return m ? (<><div className="av" style={{background:m.color,width:36,height:36,fontSize:12,borderRadius:8}}>{m.initials}</div><div><div style={{fontWeight:700,fontSize:14}}>{m.name}</div><div style={{fontSize:11,color:"var(--t3)"}}>{m.func}</div></div></>) : null; })()}
+                </div>
+              )}
+              <div className="fgrp"><label className="flbl">ERP Role</label>
+                <select className="fi" value={memForm.erpRole} onChange={e => setMemForm(f => ({...f,erpRole:e.target.value}))}>
+                  <option value="">— Select —</option>
+                  {ERP_ROLES_LIST.map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </div>
+              <div className="fgrp"><label className="flbl">Notes</label><input className="fi" value={memForm.notes} onChange={e => setMemForm(f => ({...f,notes:e.target.value}))}/></div>
+            </div>
+            <div className="md-footer">
+              <button className="btn bo" onClick={() => setMemModal(null)}>Cancel</button>
+              <button className="btn bp" onClick={saveMember}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  // ── NEW: ERP Duty Rota ── Notify Sub-tab ──────────────────────────────────
+  const [notifSubTab, setNotifSubTab] = useState("compose");
+  const [notifType, setNotifType] = useState("rotation_reminder");
+  const [notifChannel, setNotifChannel] = useState("email");
+  const [notifRecipients, setNotifRecipients] = useState([]);
+  const [emergencyModal, setEmergencyModal] = useState(false);
+
+  const getTemplate = () => {
+    if (notifType === "rotation_reminder") return ERP_MSG_TEMPLATES.rotation_reminder(activeWeek, nextWeek);
+    if (notifType === "assignment") return ERP_MSG_TEMPLATES.assignment(null, "Duty", activeWeek);
+    if (notifType === "status_alert") return ERP_MSG_TEMPLATES.status_alert(null, "OFFICE", "ON_SITE");
+    return {subject:"",body:""};
+  };
+
+  const sendNotification = async (isEmergency = false) => {
+    const tpl = isEmergency ? {subject:"🚨 EMERGENCY ALERT — Mazarine Energy Tunisia",body:"EMERGENCY ALERT: All ERP duty personnel are required to report immediately.\nEmergency Line: 29 324 484"} : getTemplate();
+    const rcpts = isEmergency ? erpMembers : erpMembers.filter(m => notifRecipients.includes(m.id));
+    if (!isEmergency && rcpts.length === 0) { toast("Select at least one recipient."); return; }
+    const entry = {id:Date.now(),time:new Date().toISOString(),subject:tpl.subject,channel:isEmergency?"all":notifChannel,count:rcpts.length,status:"simulated",isEmergency};
+    try {
+      await erpNotificationsAPI.send({type:notifType,channel:isEmergency?"all":notifChannel,recipients:rcpts.map(m=>({name:m.name,phone:m.phone,email:m.email})),subject:tpl.subject,body:tpl.body,isEmergency});
+      entry.status = "sent";
+    } catch { entry.status = "simulated"; }
+    setNotifLog(p => [entry,...p]);
+    setEmergencyModal(false);
+    toast(entry.status === "sent" ? "Notification sent!" : "Notification simulated (backend offline).", entry.status === "sent" ? "success" : "info");
+  };
+
+  const toggleRecipient = (id) => {
+    setNotifRecipients(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+  };
+
+  const renderNotify = () => {
+    const tpl = getTemplate();
+    return (
+      <div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div style={{display:"flex",gap:8}}>
+            {["compose","history"].map(t => (
+              <button key={t} className={notifSubTab===t?"btn bp":"btn bo"} onClick={() => setNotifSubTab(t)} style={{fontSize:12}}>
+                {t === "compose" ? "✉ Compose" : "📋 History"}
+              </button>
+            ))}
+          </div>
+          {canEmergency && <button onClick={() => setEmergencyModal(true)} style={{padding:"8px 18px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#dc2626,#991b1b)",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer"}}>🚨 Emergency Broadcast</button>}
+          {!canEmergency && <span className="badge" style={{background:"#fef2f2",color:"#dc2626"}}>🔒 Emergency: Admin/Ops only</span>}
+        </div>
+
+        {notifSubTab === "compose" && (
+          <div className="g2">
+            <div className="card" style={{flex:2}}>
+              {!canSendNotif && <div style={{padding:"8px 14px",borderRadius:8,background:"#f1f5f9",color:"var(--t3)",fontSize:12,fontWeight:600,marginBottom:12}}>🔒 Read-only — notification sending restricted</div>}
+              <div className="fgrp"><label className="flbl">Notification Type</label>
+                <select className="fi" value={notifType} onChange={e => setNotifType(e.target.value)}>
+                  <option value="rotation_reminder">Rotation Reminder</option>
+                  <option value="assignment">Duty Assignment</option>
+                  <option value="status_alert">Status Alert</option>
+                </select>
+              </div>
+              <div className="fgrp" style={{marginTop:12}}><label className="flbl">Channel</label>
+                <div style={{display:"flex",gap:8}}>
+                  {["email","sms","whatsapp","all"].map(c => (
+                    <button key={c} className={notifChannel===c?"btn bp":"btn bo"} onClick={() => setNotifChannel(c)} style={{fontSize:12,padding:"6px 14px",textTransform:"capitalize"}}>{c}</button>
+                  ))}
+                </div>
+              </div>
+              <div className="fgrp" style={{marginTop:12}}><label className="flbl">Message Preview</label>
+                <div style={{background:"var(--bg)",borderRadius:10,padding:14,border:"1px solid var(--b)"}}>
+                  <div style={{fontWeight:700,fontSize:13,marginBottom:4}}>{tpl.subject}</div>
+                  <pre style={{fontFamily:"'JetBrains Mono',monospace",fontSize:12,color:"var(--t2)",whiteSpace:"pre-wrap",margin:0}}>{tpl.body}</pre>
+                </div>
+              </div>
+              <div style={{display:"flex",gap:8,marginTop:14}}>
+                <button className="btn bo" onClick={() => { setNotifRecipients(erpMembers.map(m=>m.id)); }}>Select All</button>
+                <button className="btn bo" onClick={() => setNotifRecipients([])}>Clear</button>
+                <div style={{flex:1}}/>
+                {canSendNotif && <button className="btn bp" onClick={() => sendNotification(false)}>Send Notification ({notifRecipients.length})</button>}
+              </div>
+            </div>
+            <div className="card">
+              <div className="card-hd"><div className="card-title">Recipients</div><span className="badge bgr2">{notifRecipients.length}</span></div>
+              {erpMembers.map(m => (
+                <div key={m.id} onClick={() => toggleRecipient(m.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 6px",borderBottom:"1px solid var(--b)",cursor:"pointer",borderRadius:6,background:notifRecipients.includes(m.id)?"#f0fdf4":"transparent"}}>
+                  <input type="checkbox" checked={notifRecipients.includes(m.id)} readOnly style={{accentColor:"#E8750A"}}/>
+                  <div className="av" style={{background:m.color||"#7c3aed",width:26,height:26,fontSize:9,borderRadius:6}}>{m.initials}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:600,fontSize:12}}>{m.name}</div>
+                    <div style={{fontSize:10,color:"var(--t3)",fontFamily:"'JetBrains Mono',monospace"}}>{m.phone}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {notifSubTab === "history" && (
+          <div className="card">
+            <div className="card-hd"><div className="card-title">Notification History</div><span className="badge bgr2">{notifLog.length}</span></div>
+            {notifLog.length === 0 && <div className="empty"><div className="empty-ico">🔔</div>No notifications sent yet</div>}
+            {notifLog.map(n => (
+              <div key={n.id} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:"1px solid var(--b)"}}>
+                <span style={{fontSize:18}}>{n.isEmergency ? "🚨" : "📧"}</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:700,fontSize:13}}>{n.subject}</div>
+                  <div style={{fontSize:11,color:"var(--t3)",fontFamily:"'JetBrains Mono',monospace"}}>{n.channel} · {n.count} recipients · {new Date(n.time).toLocaleString()}</div>
+                </div>
+                <span className="badge" style={{background:n.status==="sent"?"#dcfce7":"#fef3c7",color:n.status==="sent"?"#16a34a":"#92400e"}}>{n.status}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {emergencyModal && (
+          <div className="mo" onClick={e=>e.target.className==="mo"&&setEmergencyModal(false)}>
+            <div className="md" style={{maxWidth:440,border:"2px solid #dc2626"}}>
+              <div className="md-title" style={{color:"#dc2626"}}>🚨 Emergency Broadcast</div>
+              <div style={{textAlign:"center"}}>
+                <div style={{fontSize:48,marginBottom:8}}>🚨</div>
+                <div style={{fontWeight:700,fontSize:15,marginBottom:8}}>Send Emergency Alert to ALL {erpMembers.length} ERP Members?</div>
+                <div style={{fontSize:12,color:"var(--t3)",marginBottom:4}}>This will broadcast via ALL channels (Email, SMS, WhatsApp).</div>
+                <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:14,fontWeight:700,color:"#dc2626",marginBottom:16}}>Emergency Line: 29 324 484</div>
+              </div>
+              <div className="md-footer" style={{justifyContent:"center"}}>
+                <button className="btn bo" onClick={() => setEmergencyModal(false)}>Cancel</button>
+                <button className="btn bd" onClick={() => sendNotification(true)}>Send Now</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // ── NEW: ERP Duty Rota ── Settings Sub-tab ────────────────────────────────
+  const [testConn, setTestConn] = useState(null); // null | "ok" | "fail"
+  const testBackend = async () => {
+    try {
+      const r = await fetch(`${erpSettings.backendUrl}/api/health`);
+      setTestConn(r.ok ? "ok" : "fail");
+      toast(r.ok ? "Backend connected!" : "Backend unreachable.", r.ok ? "success" : "error");
+    } catch { setTestConn("fail"); toast("Backend unreachable."); }
+  };
+
+  const resetAllData = async () => {
+    if (!window.confirm("Reset ALL ERP Duty Rota data? This cannot be undone.")) return;
+    try {
+      // Delete all roster entries and weeks via API
+      for (const m of erpMembers) await erpRosterAPI.remove(m.id).catch(()=>{});
+      for (const w of rotWeeks) await erpWeeksAPI.delete(w.id).catch(()=>{});
+      setErpRosterRaw([]);
+      setRotWeeks([]);
+      setNotifLog([]);
+      localStorage.removeItem("maz_erp_settings");
+      setErpSettings({backendUrl:"http://localhost:3001",reminderDay:"thursday",reminderChannel:"email",smtpHost:"",smtpUser:"",smtpPass:"",twilioSid:"",twilioToken:"",twilioFrom:"",twilioWa:""});
+      toast("All ERP data reset.","success");
+    } catch (e) { toast("Reset failed: " + e.message); }
+  };
+
+  const renderSettings = () => (
+    <div>
+      {!canEditSettings && <div style={{padding:"10px 16px",borderRadius:10,background:"#f1f5f9",color:"var(--t3)",fontSize:13,fontWeight:600,marginBottom:16}}>🔒 Read-only — settings changes restricted to Admin</div>}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+        <div className="card" style={{margin:0}}>
+          <div className="card-hd"><div className="card-title">Backend Connection</div></div>
+          <div className="fgrp"><label className="flbl">Backend URL</label><input className="fi" value={erpSettings.backendUrl} disabled={!canEditSettings} onChange={e => setErpSettings(s => ({...s,backendUrl:e.target.value}))}/></div>
+          <div style={{display:"flex",gap:8,marginTop:10}}>
+            <button className="btn bp" onClick={testBackend}>Test Connection</button>
+            {testConn && <span className="badge" style={{background:testConn==="ok"?"#dcfce7":"#fef2f2",color:testConn==="ok"?"#16a34a":"#dc2626"}}>{testConn==="ok"?"✓ Connected":"✗ Failed"}</span>}
+          </div>
+        </div>
+        <div className="card" style={{margin:0}}>
+          <div className="card-hd"><div className="card-title">Email (SMTP)</div></div>
+          <div className="fgrp"><label className="flbl">SMTP Host</label><input className="fi" value={erpSettings.smtpHost} disabled={!canEditSettings} onChange={e => setErpSettings(s => ({...s,smtpHost:e.target.value}))}/></div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:8}}>
+            <div className="fgrp"><label className="flbl">User</label><input className="fi" value={erpSettings.smtpUser} disabled={!canEditSettings} onChange={e => setErpSettings(s => ({...s,smtpUser:e.target.value}))}/></div>
+            <div className="fgrp"><label className="flbl">Password</label><input type="password" className="fi" value={erpSettings.smtpPass} disabled={!canEditSettings} onChange={e => setErpSettings(s => ({...s,smtpPass:e.target.value}))}/></div>
+          </div>
+        </div>
+        <div className="card" style={{margin:0}}>
+          <div className="card-hd"><div className="card-title">Twilio (SMS/WhatsApp)</div></div>
+          <div className="fgrp"><label className="flbl">Account SID</label><input className="fi" value={erpSettings.twilioSid} disabled={!canEditSettings} onChange={e => setErpSettings(s => ({...s,twilioSid:e.target.value}))}/></div>
+          <div className="fgrp" style={{marginTop:8}}><label className="flbl">Auth Token</label><input type="password" className="fi" value={erpSettings.twilioToken} disabled={!canEditSettings} onChange={e => setErpSettings(s => ({...s,twilioToken:e.target.value}))}/></div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:8}}>
+            <div className="fgrp"><label className="flbl">SMS From</label><input className="fi" value={erpSettings.twilioFrom} disabled={!canEditSettings} onChange={e => setErpSettings(s => ({...s,twilioFrom:e.target.value}))}/></div>
+            <div className="fgrp"><label className="flbl">WhatsApp From</label><input className="fi" value={erpSettings.twilioWa} disabled={!canEditSettings} onChange={e => setErpSettings(s => ({...s,twilioWa:e.target.value}))}/></div>
+          </div>
+        </div>
+        <div className="card" style={{margin:0}}>
+          <div className="card-hd"><div className="card-title">Schedule</div></div>
+          <div className="fgrp"><label className="flbl">Reminder Day</label>
+            <select className="fi" value={erpSettings.reminderDay} disabled={!canEditSettings} onChange={e => setErpSettings(s => ({...s,reminderDay:e.target.value}))}>
+              {["monday","tuesday","wednesday","thursday","friday"].map(d => <option key={d} value={d}>{d.charAt(0).toUpperCase()+d.slice(1)}</option>)}
+            </select>
+          </div>
+          <div className="fgrp" style={{marginTop:8}}><label className="flbl">Reminder Channel</label>
+            <select className="fi" value={erpSettings.reminderChannel} disabled={!canEditSettings} onChange={e => setErpSettings(s => ({...s,reminderChannel:e.target.value}))}>
+              <option value="email">Email</option><option value="sms">SMS</option><option value="whatsapp">WhatsApp</option><option value="all">All Channels</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      {canEditSettings && (
+        <div className="card" style={{marginTop:16,border:"1px solid #fecaca"}}>
+          <div className="card-hd"><div className="card-title" style={{color:"#dc2626"}}>Danger Zone</div></div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <div style={{fontSize:13,color:"var(--t3)"}}>Reset all ERP Duty Rota data to defaults. This cannot be undone.</div>
+            <button onClick={resetAllData} style={{padding:"8px 18px",borderRadius:10,border:"1px solid #dc2626",background:"#fff",color:"#dc2626",fontWeight:700,fontSize:13,cursor:"pointer"}}>Reset All Data</button>
+          </div>
+        </div>
+      )}
+      <div className="card" style={{marginTop:16}}>
+        <div className="card-hd"><div className="card-title">Setup Guide</div></div>
+        <div style={{fontSize:13,color:"var(--t2)",lineHeight:1.7}}>
+          <div style={{fontWeight:700,marginBottom:4}}>1. Configure Backend</div>
+          <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,background:"var(--bg)",padding:"6px 10px",borderRadius:6,marginBottom:10}}>Set Backend URL → Test Connection → verify ✓</div>
+          <div style={{fontWeight:700,marginBottom:4}}>2. Set up Email (SMTP)</div>
+          <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,background:"var(--bg)",padding:"6px 10px",borderRadius:6,marginBottom:10}}>Host: smtp.office365.com | Port: 587 | TLS</div>
+          <div style={{fontWeight:700,marginBottom:4}}>3. Set up Twilio (optional)</div>
+          <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,background:"var(--bg)",padding:"6px 10px",borderRadius:6}}>Account SID + Auth Token from twilio.com/console</div>
+        </div>
+      </div>
+    </div>
+  );
+
+  // ── NEW: ERP Duty Rota ── Main Render ─────────────────────────────────────
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <div>
+          <div style={{fontSize:11,color:"var(--t3)",fontWeight:500}}>Mazarine Energy Tunisia – Oum Chiah CPF</div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:12,color:"var(--t3)"}}>{new Date().toLocaleDateString("en-GB",{weekday:"short",day:"2-digit",month:"short",year:"numeric"})}</span>
+          <div style={{display:"flex"}}>
+            {erpMembers.filter(m=>m.status!=="OFF").slice(0,6).map(m => (
+              <div key={m.id} className="av" style={{background:m.color||"#7c3aed",width:28,height:28,fontSize:9,borderRadius:999,marginLeft:-6,border:"2px solid #fff"}} title={m.name}>{m.initials}</div>
+            ))}
+          </div>
+        </div>
+      </div>
+      {/* Inner tab strip */}
+      <div style={{display:"flex",gap:6,marginBottom:20,background:"var(--bg)",padding:4,borderRadius:12}}>
+        {TABS.map(t => (
+          <button key={t.key} onClick={() => setErpTab(t.key)} style={{
+            padding:"8px 16px",borderRadius:8,border:"none",fontSize:13,fontWeight:600,cursor:"pointer",
+            background:erpTab===t.key?"#fff":"transparent",
+            color:erpTab===t.key?"var(--t1)":"var(--t3)",
+            boxShadow:erpTab===t.key?"0 1px 4px rgba(0,0,0,.08)":"none",
+            transition:"all .15s"
+          }}>
+            {t.ico} {t.label}
+          </button>
+        ))}
+      </div>
+      {erpLoading ? <div className="empty"><div className="empty-ico">⏳</div>Loading ERP data...</div> : <>
+        {erpTab === "dashboard" && renderDashboard()}
+        {erpTab === "rotation" && renderRotation()}
+        {erpTab === "members" && renderMembers()}
+        {erpTab === "notify" && renderNotify()}
+        {erpTab === "settings" && renderSettings()}
+      </>}
+    </div>
+  );
+}
 
 function AuditTrailView({users}) {
   const [logs,setLogs]=useState([]);
@@ -4273,6 +5703,20 @@ export default function App() {
   const [showTOTPModal, setShowTOTPModal] = useState(false);
   const [loading,       setLoading]       = useState(false);
   const [error,         setError]         = useState(null);
+  const [theme,         setTheme]         = useState(() => localStorage.getItem("maz_theme") || "enterprise");
+
+  // Apply theme CSS variables to document root
+  useEffect(() => {
+    const root = document.documentElement;
+    // Collect ALL variable keys from every theme
+    const allKeys = new Set();
+    Object.values(THEMES).forEach(t => Object.keys(t.vars).forEach(k => allKeys.add(k)));
+    allKeys.forEach(k => root.style.removeProperty(k));
+    // Apply selected theme overrides
+    const t = THEMES[theme];
+    if (t && t.vars) Object.entries(t.vars).forEach(([k,v]) => root.style.setProperty(k,v));
+    localStorage.setItem("maz_theme", theme);
+  }, [theme]);
 
   // ── Load company settings on mount (public endpoint, no auth needed) ──────────
   useEffect(() => {
@@ -4358,7 +5802,8 @@ export default function App() {
           step1ReviewedAt: r.step1_reviewed_at?.slice(0,10) || null,
           step1Comment: r.step1_comment || null,
           currentApproverId: r.current_approver_id || null,
-          workflowInstanceId: r.workflow_instance_id || null
+          workflowInstanceId: r.workflow_instance_id || null,
+          attachmentUrl: r.attachment_url || null
         })));
         
         const rolesObj = {};
@@ -4576,6 +6021,7 @@ export default function App() {
   const NAV = [
     {key:"dashboard",  label:"Dashboard",   ico:"⊞",  show:true},
     {key:"schedule",   label:"Schedule",    ico:"📅", show:!isSA&&user.type==="field"},
+    {key:"erp_rota",   label:"ERP Duty Rota",ico:"🔄", show:!isSA&&(isAd||hasPerm(roles,user.role,"erp_rota")), badge:daysUntilFriday()+"d"},
     {key:"timesheet",  label:"Timesheet",   ico:"🗒", show:!isSA},
     {key:"requests",   label:"Requests",    ico:"📋", show:!isSA, badge:requests.filter(r=>r.userId===user.id&&r.status==="Pending").length},
     {key:"org-chart",  label:"Org Chart",   ico:"🏢", show:!isSA},
@@ -4586,7 +6032,21 @@ export default function App() {
     {key:"settings",   label:"Settings",    ico:"⚙️", show:isAd},
   ].filter(n => n.show);
 
-  const TITLES = {dashboard:"Dashboard",schedule:"My Schedule",timesheet:"Timesheet",requests:"My Requests","org-chart":"Organisation Chart",analytics:"Analytics & Reports",approvals:"Approvals","hr-report":"HR Report",audit:"Audit Trail",settings:"Settings"};
+  const TITLES = {dashboard:"Dashboard",schedule:"My Schedule",erp_rota:"ERP Duty Rota",timesheet:"Timesheet",requests:"My Requests","org-chart":"Organisation Chart",analytics:"Analytics & Reports",approvals:"Approvals","hr-report":"HR Report",audit:"Audit Trail",settings:"Settings"};
+  const PAGE_META = {
+    dashboard:   {desc:"Overview of your activity, leave balances, and key metrics",section:"Home"},
+    schedule:    {desc:"Field rotation calendar with ON/OFF cycles and availability",section:"Operations"},
+    erp_rota:    {desc:"Emergency response duty rotation, personnel, and notifications",section:"Operations"},
+    timesheet:   {desc:"Monthly timesheet entries, project allocations, and submissions",section:"Time Management"},
+    requests:    {desc:"Submit and track leave, mission, and other requests",section:"Time Management"},
+    "org-chart": {desc:"Interactive organisation structure and reporting lines",section:"People"},
+    analytics:   {desc:"Hours breakdown, project allocation, and workforce analytics",section:"Reports"},
+    approvals:   {desc:"Review and approve pending timesheets and requests",section:"Management"},
+    "hr-report": {desc:"Payroll summaries, attendance, and compliance reports",section:"Reports"},
+    audit:       {desc:"System activity log with user actions and change history",section:"Administration"},
+    settings:    {desc:"Users, roles, projects, activities, and system configuration",section:"Administration"},
+  };
+  const isEnterprise = theme === "enterprise";
 
   return (
     <>
@@ -4598,27 +6058,7 @@ export default function App() {
         <div className={`sb-overlay${sidebarOpen?" open":""}`} onClick={()=>setSidebarOpen(false)}/>
 
         <aside className={`sb${sidebarOpen?" open":""}`}>
-          <div className="sb-top" style={{paddingBottom:14}}>
-            <div className="logo">
-              {companySetting.logoBase64
-                ? <img src={companySetting.logoBase64} alt="logo" style={{width:36,height:36,borderRadius:8,objectFit:"contain",flexShrink:0}}/>
-                : <div className="logo-ico">{(companySetting.companyName||"ME").slice(0,2).toUpperCase()}</div>}
-              <div><div className="logo-co">{companySetting.companyName||"MAZARINE"}</div><div className="logo-sub">{companySetting.companySubtitle||"Energy Tunisia"}</div></div>
-            </div>
-          </div>
-          <div style={{padding:"9px 11px 5px"}}>
-            <div className="upill">
-              <div className="av" style={{background:isSA?"#dc2626":aColor(user.id),width:34,height:34,borderRadius:8}}>
-                {initials(user.name)}
-              </div>
-              <div style={{flex:1,minWidth:0}}>
-                <div className="u-nm">{user.name.split(" ")[0]}</div>
-                <div className="u-rl">{isSA ? "System Administrator" : user.dept}</div>
-              </div>
-              <RoleBadge role={user.role} roles={roles}/>
-            </div>
-          </div>
-          <nav className="nav">
+          <nav className="nav" style={{paddingTop:12}}>
             <div className="nl">Navigation</div>
             {NAV.slice(0, isSA ? 2 : 5).map(n => (
               <div key={n.key} className={`ni${view===n.key?" active":""}`} onClick={()=>{setView(n.key);setSidebarOpen(false);}}>
@@ -4638,35 +6078,55 @@ export default function App() {
               </>
             )}
           </nav>
-          <div style={{padding:"9px 13px",borderTop:"1px solid var(--b)",display:"flex",alignItems:"center",gap:8}}>
-            <div className="dot" style={{background:"var(--gr)"}}/>
-            <span style={{fontSize:11,color:"var(--t3)",fontWeight:500}}>Online</span>
-            {!isSA && <TypeBadge type={user.type}/>}
+          <div style={{padding:"9px 13px",borderTop:"1px solid var(--b)",display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
+            {Object.values(THEMES).map(t => (
+              <button key={t.key} onClick={() => setTheme(t.key)} title={t.label} style={{
+                width:28,height:28,borderRadius:6,border:theme===t.key?"2px solid var(--v)":"1px solid var(--b)",
+                background:theme===t.key?"var(--vl)":"var(--s2)",cursor:"pointer",fontSize:13,
+                display:"flex",alignItems:"center",justifyContent:"center",padding:0
+              }}>{t.ico}</button>
+            ))}
           </div>
         </aside>
 
         {/* ── Main ── */}
         <main className="main">
           <div className="topbar">
-            <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
               <button className="hamburger" onClick={()=>setSidebarOpen(o=>!o)} aria-label="Menu">
                 <span/><span/><span/>
               </button>
-              <div>
-                <div className="pg-title">{isSA ? "System Administration" : (TITLES[view]||"Dashboard")}</div>
-                <div className="pg-sub">
-                  {MONTHS[new Date().getMonth()]} {new Date().getFullYear()}
-                  {!isSA && ` · ${user.type==="field"?"Field Rotation":"Office Regime"}`}
-                </div>
+              <div className="topbar-logo" style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}} onClick={()=>setView("dashboard")}>
+                {companySetting.logoBase64
+                  ? <img src={companySetting.logoBase64} alt="logo" style={{width:28,height:28,borderRadius:4,objectFit:"contain",flexShrink:0}}/>
+                  : <div className="logo-ico" style={{width:28,height:28,fontSize:11,borderRadius:4}}>{(companySetting.companyName||"ME").slice(0,2).toUpperCase()}</div>}
+                <span className="topbar-logo-text" style={{fontSize:14,fontWeight:700,whiteSpace:"nowrap"}}>{companySetting.companyName||"MAZARINE"}</span>
               </div>
             </div>
-            <div style={{display:"flex",alignItems:"center",gap:10}}>
-              <span className="topbar-date" style={{fontSize:12,color:"#000",fontFamily:"'JetBrains Mono',monospace"}}>
+            {/* Search bar */}
+            <div className="topbar-search">
+              <span style={{color:"var(--t3)",fontSize:14,flexShrink:0}}>🔍</span>
+              <input
+                type="text"
+                placeholder="Search pages, users, projects..."
+                className="topbar-search-input"
+                onKeyDown={e => {
+                  if (e.key === "Enter" && e.target.value.trim()) {
+                    const q = e.target.value.trim().toLowerCase();
+                    const match = NAV.find(n => n.label.toLowerCase().includes(q) || n.key.includes(q));
+                    if (match) { setView(match.key); e.target.value = ""; e.target.blur(); toast(`Navigated to ${match.label}`,"info"); }
+                    else toast("No matching page found.");
+                  }
+                }}
+              />
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+              <span className="topbar-date" style={{fontSize:12,color:"var(--t3)",fontFamily:"'JetBrains Mono',monospace"}}>
                 {new Date().toLocaleDateString("en-GB",{weekday:"short",day:"2-digit",month:"short",year:"numeric"})}
               </span>
               {totalBadge > 0 && canApp && !isSA && (
                 <button className="btn bo bsm" style={{color:"var(--am)",borderColor:"var(--am)"}} onClick={()=>setView("approvals")}>
-                  🔔 {totalBadge} pending
+                  🔔 {totalBadge}
                 </button>
               )}
               {/* Push notification bell */}
@@ -4683,10 +6143,14 @@ export default function App() {
               )}
               {/* Profile dropdown */}
               <div className="profile-dd" onMouseDown={e=>e.stopPropagation()}>
-                <div className="av"
-                  style={{background:isSA?"#dc2626":aColor(user.id),width:34,height:34,borderRadius:8,cursor:"pointer"}}
-                  onClick={()=>setProfileOpen(o=>!o)}>
-                  {initials(user.name)}
+                <div style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}} onClick={()=>setProfileOpen(o=>!o)}>
+                  <div className="av" style={{background:isSA?"#dc2626":aColor(user.id),width:34,height:34,borderRadius:8}}>
+                    {initials(user.name)}
+                  </div>
+                  <div className="profile-name" style={{minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:600,color:"var(--t)",lineHeight:1.2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{user.name}</div>
+                    <div style={{fontSize:11,color:"var(--t3)",lineHeight:1.2}}>{isSA?"Admin":user.dept||user.role}</div>
+                  </div>
                 </div>
                 {profileOpen && (
                   <div className="profile-menu">
@@ -4716,12 +6180,27 @@ export default function App() {
           </div>
 
           <div className="content">
+            {isEnterprise && !isSA && PAGE_META[view] && (
+              <div className="ent-page-header">
+                <div className="ent-ph-left">
+                  <div className="ent-ph-desc">{PAGE_META[view].desc}</div>
+                </div>
+                <div className="ent-ph-right">
+                  <div className="ent-ph-meta">
+                    <span className="ent-ph-chip">{user.type==="field"?"Field":"Office"}</span>
+                    <span className="ent-ph-chip">{user.dept||"—"}</span>
+                    <span className="ent-ph-chip ent-ph-chip-muted">{MONTHS[new Date().getMonth()]} {new Date().getFullYear()}</span>
+                  </div>
+                </div>
+              </div>
+            )}
             {isSA && view !== "settings" ? (
               <SuperAdminView users={users} setUsers={setUsers} roles={roles} setRoles={setRoles} onResetPwd={adminResetPwd} companySetting={companySetting} setCompanySetting={setCompanySetting}/>
             ) : (
               <>
-                {view==="dashboard"  && !isSA && <Dashboard   user={user} requests={requests} projects={projects} roles={roles} tsStatuses={tsStatuses} rotations={rotationPlans}/>}
+                {view==="dashboard"  && !isSA && <Dashboard   user={user} requests={requests} projects={projects} roles={roles} tsStatuses={tsStatuses} rotations={rotationPlans} users={users} setView={setView}/>}
                 {view==="schedule"   && <ScheduleView user={user} rotations={rotationPlans} users={users} rotationPlans={rotationPlans} setRotationPlans={setRotationPlans} canManage={isAd||hasHR}/>}
+                {view==="erp_rota"   && <ERPDutyRotaView user={user} users={users} roles={roles} requests={requests}/>}
                 {view==="timesheet"  && <TimesheetView user={user} projects={projects} timesheetData={timesheetData} setTimesheetData={setTimesheetData} tsStatuses={tsStatuses} setTsStatuses={setTsStatuses} activities={activities} rotations={rotationPlans}/>}
                 {view==="requests"   && <RequestsView  user={user} requests={requests} setRequests={setRequests} users={users} roles={roles} setUsers={setUsers} tsStatuses={tsStatuses} activities={activities}/>}
                 {view==="org-chart"  && <OrgChartView user={user} users={users} roles={roles}/>}

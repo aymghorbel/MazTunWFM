@@ -1,0 +1,48 @@
+# ── Stage 1: Build React frontend ────────────────────────────────────────────
+FROM node:18-alpine AS frontend-builder
+
+WORKDIR /app
+
+ARG REACT_APP_API_URL=/api
+ENV REACT_APP_API_URL=$REACT_APP_API_URL
+
+COPY package*.json ./
+RUN npm install
+
+COPY mazarine-timesheet-v5.jsx src/App.js
+COPY src/index.js src/index.js
+COPY src/api.js src/api.js
+COPY src/msalConfig.js src/msalConfig.js
+COPY src/service-worker.js src/service-worker.js
+COPY src/serviceWorkerRegistration.js src/serviceWorkerRegistration.js
+COPY public/ public/
+COPY generate-icons.js ./
+RUN node generate-icons.js
+RUN npm run build
+
+# ── Stage 2: Combined API + nginx ───────────────────────────────────────────
+FROM node:18-alpine
+
+# Install nginx
+RUN apk add --no-cache nginx
+
+WORKDIR /app
+
+# Copy backend
+COPY backend/package*.json ./
+RUN npm install --omit=dev
+COPY backend/ .
+
+# Copy frontend build
+COPY --from=frontend-builder /app/build /usr/share/nginx/html
+
+# Copy nginx config
+COPY nginx.combined.conf /etc/nginx/http.d/default.conf
+
+# Create nginx directories
+RUN mkdir -p /run/nginx
+
+EXPOSE 80
+
+# Start both nginx and Node.js API
+CMD sh -c "npm run migrate && npm run migrate:sso && npm run migrate:schema && npm run migrate:workflows && npm run migrate:seed-workflows && npm run migrate:project-expiry && npm run migrate:company-entities && npm run migrate:erp-rota && nginx && npm start"

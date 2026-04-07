@@ -14,7 +14,8 @@
     "migrate:project-expiry": "node migrations/add_project_expiry.js",
     "migrate:company-entities": "node migrations/add_company_entities.js",
     "migrate:approval-chain": "node migrations/add_approval_chain.js",
-    "migrate:workflow-designer": "node migrations/add_workflow_designer.js"
+    "migrate:workflow-designer": "node migrations/add_workflow_designer.js",
+    "migrate:erp-rota": "node migrations/add_erp_rota.js"
   },
   "dependencies": {
     "express": "^4.18.2",
