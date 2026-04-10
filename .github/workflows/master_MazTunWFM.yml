@@ -36,19 +36,22 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ── Build React frontend ──────────────────────────────────────────────
       - name: Set up Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: '22'
 
+      # ── Build React frontend ──────────────────────────────────────────────
       - name: Install frontend dependencies
+        working-directory: frontend
         run: npm install
 
-      - name: Copy main component to src/App.js
-        run: cp mazarine-timesheet-v5.jsx src/App.js
+      - name: Generate PWA icons
+        working-directory: frontend
+        run: node generate-icons.js
 
       - name: Build React application
+        working-directory: frontend
         run: npm run build
         env:
           REACT_APP_API_URL: ''
@@ -62,7 +65,7 @@ jobs:
         run: npm install --omit=dev
 
       - name: Copy frontend build into backend
-        run: cp -r build backend/build
+        run: cp -r frontend/build backend/build
 
       - name: Create deployment archive
         run: |

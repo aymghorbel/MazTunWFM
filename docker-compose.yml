@@ -1,51 +1,57 @@
-version: '3.8'
-
 services:
-  mazarine-timesheet:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: mazarine-timesheet-app
-    ports:
-      - "3000:80"
+  db:
+    image: postgres:15-alpine
+    container_name: mazarine-db
     environment:
-      - NODE_ENV=production
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:80"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.mazarine.rule=Host(`localhost`)"
-      - "traefik.http.services.mazarine.loadbalancer.server.port=80"
-    networks:
-      - mazarine-network
-
-  # Optional: Add reverse proxy (Traefik) for production
-  traefik:
-    image: traefik:v2.10
-    container_name: mazarine-traefik
-    command:
-      - "--api.insecure=true"
-      - "--providers.docker=true"
-      - "--providers.docker.exposedbydefault=false"
-      - "--entrypoints.web.address=:80"
-    ports:
-      - "8080:80"     # HTTP port
-      - "8081:8080"   # Traefik dashboard
+      POSTGRES_DB: mazarine
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-MazarineDB2024!}
+      PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    networks:
-      - mazarine-network
-    profiles:
-      - production
+      - mazarine_pgdata:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d mazarine"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
 
-networks:
-  mazarine-network:
-    driver: bridge
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mazarine-api
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: mazarine
+      DB_USER: postgres
+      DB_PASSWORD: ${DB_PASSWORD:-MazarineDB2024!}
+      DB_SSL: "false"
+      JWT_SECRET: ${JWT_SECRET:-57fad138eecde6f67c5ab9827c966512c3163a96ad6455b3963cefb29b468227}
+    ports:
+      - "3001:3001"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        REACT_APP_API_URL: /api
+    container_name: mazarine-frontend
+    ports:
+      - "3005:80"
+    depends_on:
+      - api
+    restart: unless-stopped
 
 volumes:
-  mazarine-data:
+  mazarine_pgdata:
