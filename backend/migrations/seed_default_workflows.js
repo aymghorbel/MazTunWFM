@@ -7,17 +7,7 @@
  * container start without overwriting custom definitions.
  */
 
-const { Pool } = require('pg');
-require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
-
-const pool = new Pool({
-  host:     process.env.DB_HOST     || 'db',
-  port:     process.env.DB_PORT     || 5432,
-  database: process.env.DB_NAME     || 'mazarine',
-  user:     process.env.DB_USER     || 'mazadmin',
-  password: process.env.DB_PASSWORD,
-  ssl:      process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
-});
+const pool = require('./db');
 
 // Default definitions — one per entity type.
 // Each replicates the legacy single-step "direct manager must approve" flow.
