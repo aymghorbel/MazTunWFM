@@ -1162,11 +1162,10 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
     let count=0;
     setEntries(prev=>prev.map(e=>{
       if(e.locked||isLocked||LEAVE_ACTS_PS.includes(e.activity)) return e;
-      if(e.allocations.length>0&&e.allocations.some(a=>a.projectId)) return e;
       count++;
       return{...e,allocations:[{id:Date.now()+Math.random(),projectId:pid,allocation:1.0,note:""}]};
     }));
-    if(count===0) toast("All non-leave days already have a project assigned.");
+    if(count===0) toast("No editable non-leave days found.");
     else toast(`Applied default project to ${count} days.`,"info");
   }
 
