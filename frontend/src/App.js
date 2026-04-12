@@ -1028,6 +1028,7 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
   const [bulkTmpl,setBulkTmpl]=useState(BLANK_TMPL);
   const [bulkScope,setBulkScope]=useState("selected");    // "selected"|"activity"|"all"
   const [bulkActFilter,setBulkActFilter]=useState("");    // for scope="activity"
+  const [defaultProject,setDefaultProject]=useState("");  // default project for quick fill
 
   const key=tsKey(user.id,year,month);
   const _today=new Date(); _today.setHours(0,0,0,0);
@@ -1153,6 +1154,20 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
       if(e.allocations.length>0) return e; // already has allocation
       return{...e,allocations:[{id:Date.now()+Math.random(),projectId:dflt,allocation:1.0,note:""}]};
     }));
+  }
+
+  function applyDefaultProject(){
+    const pid=Number(defaultProject);
+    if(!pid){toast("Please select a default project first.");return;}
+    let count=0;
+    setEntries(prev=>prev.map(e=>{
+      if(e.locked||isLocked||LEAVE_ACTS_PS.includes(e.activity)) return e;
+      if(e.allocations.length>0&&e.allocations.some(a=>a.projectId)) return e;
+      count++;
+      return{...e,allocations:[{id:Date.now()+Math.random(),projectId:pid,allocation:1.0,note:""}]};
+    }));
+    if(count===0) toast("All non-leave days already have a project assigned.");
+    else toast(`Applied default project to ${count} days.`,"info");
   }
 
   function copyPrevMonth(){
@@ -1404,13 +1419,16 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
         <div>
           {/* ── Bulk toolbar (only when not locked) */}
           {!isLocked&&(
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,padding:"8px 12px",background:"var(--s2)",borderRadius:"var(--rs)",border:"1px solid var(--b)"}}>
-              <span style={{fontSize:12,color:"var(--t3)",fontWeight:600,marginRight:4}}>Bulk:</span>
-              {unallocatedCount>0&&(
-                <button className="btn bo bsm" title={`Fill ${unallocatedCount} unallocated days with the first available project at 100%`} onClick={fillUnallocated}>
-                  ⚡ Fill {unallocatedCount} unallocated
-                </button>
-              )}
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,padding:"8px 12px",background:"var(--s2)",borderRadius:"var(--rs)",border:"1px solid var(--b)",flexWrap:"wrap"}}>
+              <span style={{fontSize:12,color:"var(--t3)",fontWeight:600,marginRight:4}}>Default Project:</span>
+              <select className="isel" style={{fontSize:12,padding:"4px 8px",maxWidth:200}} value={defaultProject} onChange={e=>setDefaultProject(e.target.value)}>
+                <option value="">— Select —</option>
+                {openProj.map(p=><option key={p.id} value={p.id}>{p.code} — {p.name}</option>)}
+              </select>
+              <button className="btn bp bsm" onClick={applyDefaultProject} disabled={!defaultProject} style={{opacity:defaultProject?1:.5}}>
+                Apply to unallocated days
+              </button>
+              {unallocatedCount>0&&<span style={{fontSize:11,color:"var(--am)",fontWeight:600}}>{unallocatedCount} unallocated</span>}
               <button className="btn bo bsm" title="Copy allocation pattern from previous month (matched by day of week)" onClick={copyPrevMonth}>
                 📋 Copy prev month
               </button>
