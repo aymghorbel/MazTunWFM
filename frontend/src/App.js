@@ -1012,7 +1012,7 @@ function TSBanner({tsStatus, onSubmit, onRecall, user, entries, leaveActs=[]}) {
 }
 
 // ─── TIMESHEET VIEW ───────────────────────────────────────────────────────────
-function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,setTsStatuses,activities,rotations=[]}) {
+function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,setTsStatuses,activities,rotations=[],requests=[]}) {
   const today=new Date();
   const [detailMonth,setDetailMonth]=useState(null); // null=list view, {year,month}=detail view
   const [year,setYear]=useState(today.getFullYear());
@@ -1325,10 +1325,17 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
           const wdays=ents?ents.length:"—";
           const projCount=ents?new Set(ents.flatMap(e=>e.allocations.map(a=>a.projectId)).filter(Boolean)).size:"—";
           const isFuture=new Date(year,m,1)>today;
+          // Count pending/approved requests that cover this month
+          const monthStart=`${year}-${pad(m+1)}-01`, monthEnd=`${year}-${pad(m+1)}-${pad(daysIn(year,m))}`;
+          const monthReqs=requests.filter(r=>r.userId===user.id&&r.start<=monthEnd&&r.end>=monthStart);
+          const pendingReqs=monthReqs.filter(r=>r.status==="Pending"||r.status==="Pending L2");
+          const approvedReqs=monthReqs.filter(r=>r.status==="Approved");
+          const hasRequests=monthReqs.length>0;
+          const canOpen=!isFuture||hasRequests;
           const borderCol=st==="approved"?"var(--gr)":st==="submitted"?"var(--am)":st==="rejected"?"var(--re)":"var(--b)";
           return (
-            <div key={m} className="card" style={{cursor:isFuture?"default":"pointer",opacity:isFuture?.55:1,border:`1.5px solid ${borderCol}`,transition:"box-shadow .15s"}}
-              onClick={()=>!isFuture&&openDetail(year,m)}>
+            <div key={m} className="card" style={{cursor:canOpen?"pointer":"default",opacity:isFuture&&!hasRequests?.55:1,border:`1.5px solid ${borderCol}`,transition:"box-shadow .15s"}}
+              onClick={()=>canOpen&&openDetail(year,m)}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
                 <span style={{fontWeight:700,fontSize:15}}>{MONTHS[m]}</span>
                 <TSStatusBadge status={st}/>
@@ -1337,6 +1344,12 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
                 <span>📅 {wdays}{typeof wdays==="number"?" days":""}</span>
                 <span>📁 {projCount}{typeof projCount==="number"?" proj":""}</span>
               </div>
+              {(pendingReqs.length>0||approvedReqs.length>0)&&(
+                <div style={{display:"flex",gap:8,marginTop:6,fontSize:11,flexWrap:"wrap"}}>
+                  {pendingReqs.length>0&&<span style={{background:"var(--aml)",color:"#92400e",padding:"2px 7px",borderRadius:4,fontWeight:600}}>{pendingReqs.length} pending</span>}
+                  {approvedReqs.length>0&&<span style={{background:"var(--grl)",color:"#065f46",padding:"2px 7px",borderRadius:4,fontWeight:600}}>{approvedReqs.length} approved</span>}
+                </div>
+              )}
               {st==="rejected"&&tsStatuses[k]?.reviewComment&&(
                 <div style={{marginTop:6,fontSize:11,color:"var(--re)",fontStyle:"italic"}}>"{tsStatuses[k].reviewComment}"</div>
               )}
@@ -1348,10 +1361,31 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
   );
 
   // ── DETAIL VIEW ───────────────────────────────────────────────────────────
+  const detailMonthStart=`${year}-${pad(month+1)}-01`, detailMonthEnd=`${year}-${pad(month+1)}-${pad(daysIn(year,month))}`;
+  const monthRequests=requests.filter(r=>r.userId===user.id&&r.start<=detailMonthEnd&&r.end>=detailMonthStart);
+  const pendingMonthReqs=monthRequests.filter(r=>r.status==="Pending"||r.status==="Pending L2");
+  const approvedMonthReqs=monthRequests.filter(r=>r.status==="Approved");
+
   return (
     <div>
       <button className="btn bo bsm" onClick={()=>setDetailMonth(null)} style={{marginBottom:14}}>← All Timesheets</button>
       <TSBanner tsStatus={tsStatus} onSubmit={handleSubmit} onRecall={handleRecall} user={user} entries={entries} leaveActs={LEAVE_ACTS_PS}/>
+
+      {monthRequests.length>0&&(
+        <div style={{marginBottom:12,padding:"10px 14px",background:"var(--s2)",borderRadius:"var(--rs)",border:"1px solid var(--b)"}}>
+          <div style={{fontSize:12,fontWeight:700,marginBottom:6,color:"var(--t2)"}}>Requests for {MONTHS[month]} {year}</div>
+          {monthRequests.map(r=>(
+            <div key={r.id} style={{display:"flex",alignItems:"center",gap:8,padding:"4px 0",fontSize:12}}>
+              <span style={{background:r.status==="Approved"?"var(--grl)":r.status==="Pending"||r.status==="Pending L2"?"var(--aml)":"var(--s3)",
+                color:r.status==="Approved"?"#065f46":r.status==="Pending"||r.status==="Pending L2"?"#92400e":"var(--t2)",
+                padding:"2px 8px",borderRadius:4,fontWeight:600,fontSize:11,minWidth:70,textAlign:"center"}}>{r.status}</span>
+              <span style={{fontWeight:600}}>{r.type}</span>
+              <span style={{color:"var(--t3)"}}>{r.start}{r.end!==r.start?` → ${r.end}`:""}</span>
+              {r.daysCount>0&&<span style={{color:"var(--t3)"}}>({r.daysCount}d)</span>}
+            </div>
+          ))}
+        </div>
+      )}
 
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
         <div className="tabs" style={{margin:0}}>
@@ -6184,7 +6218,7 @@ export default function App() {
                 {view==="dashboard"  && !isSA && <Dashboard   user={user} requests={requests} projects={projects} roles={roles} tsStatuses={tsStatuses} rotations={rotationPlans} users={users} setView={setView}/>}
                 {view==="schedule"   && <ScheduleView user={user} rotations={rotationPlans} users={users} rotationPlans={rotationPlans} setRotationPlans={setRotationPlans} canManage={isAd||hasHR}/>}
                 {view==="erp_rota"   && <ERPDutyRotaView user={user} users={users} roles={roles} requests={requests}/>}
-                {view==="timesheet"  && <TimesheetView user={user} projects={projects} timesheetData={timesheetData} setTimesheetData={setTimesheetData} tsStatuses={tsStatuses} setTsStatuses={setTsStatuses} activities={activities} rotations={rotationPlans}/>}
+                {view==="timesheet"  && <TimesheetView user={user} projects={projects} timesheetData={timesheetData} setTimesheetData={setTimesheetData} tsStatuses={tsStatuses} setTsStatuses={setTsStatuses} activities={activities} rotations={rotationPlans} requests={requests}/>}
                 {view==="requests"   && <RequestsView  user={user} requests={requests} setRequests={setRequests} users={users} roles={roles} setUsers={setUsers} tsStatuses={tsStatuses} setTsStatuses={setTsStatuses} activities={activities}/>}
                 {view==="org-chart"  && <OrgChartView user={user} users={users} roles={roles}/>}
                 {view==="analytics"  && (hasAna||hasHR) && <AnalyticsReports user={user} requests={requests} users={users} projects={projects} roles={roles} tsStatuses={tsStatuses} activities={activities}/>}
