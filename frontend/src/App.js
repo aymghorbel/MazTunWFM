@@ -2727,6 +2727,37 @@ function Dashboard({user,requests,projects,roles,tsStatuses,rotations=[],users=[
           </div>
         </div>
       )}
+      {/* ── Team Leave Balances ── */}
+      {users.length>1&&(hasPerm(roles,user.role,"all")||hasPerm(roles,user.role,"view_team")||hasPerm(roles,user.role,"leave_balance"))&&(()=>{
+        const isAdmin=hasPerm(roles,user.role,"all");
+        const team=isAdmin?users.filter(u=>u.active!==false):users.filter(u=>u.active!==false&&(u.manager===user.id||u.id===user.id));
+        if(team.length===0) return null;
+        return(
+          <div className="card" style={{marginTop:14}}>
+            <div className="card-hd"><div className="card-title">Team Leave Balances</div><span className="badge bgr2">{team.length}</span></div>
+            <div className="tw" style={{maxHeight:300,overflowY:"auto"}}>
+              <table className="tbl" style={{fontSize:12}}>
+                <thead><tr><th>Employee</th><th>Dept</th><th style={{textAlign:"center"}}>Annual</th><th style={{textAlign:"center"}}>Used</th><th style={{textAlign:"center"}}>Remaining</th><th style={{textAlign:"center"}}>Recovery</th></tr></thead>
+                <tbody>
+                  {team.sort((a,b)=>(a.name||"").localeCompare(b.name||"")).map(u=>{
+                    const rem=Math.max(0,Number(u.leaveBalance||0)-Number(u.usedLeave||0));
+                    return(
+                      <tr key={u.id} style={{background:u.id===user.id?"var(--vl)":undefined}}>
+                        <td style={{fontWeight:u.id===user.id?700:400}}>{u.name}{u.id===user.id?" (You)":""}</td>
+                        <td style={{color:"var(--t3)"}}>{u.dept||"—"}</td>
+                        <td style={{textAlign:"center",fontWeight:600}}>{u.leaveBalance||0}</td>
+                        <td style={{textAlign:"center",fontWeight:600,color:"var(--am)"}}>{u.usedLeave||0}</td>
+                        <td style={{textAlign:"center",fontWeight:700,color:rem<=2?"var(--re)":rem<=5?"var(--am)":"var(--gr)"}}>{rem}</td>
+                        <td style={{textAlign:"center",fontWeight:600,color:"var(--v)"}}>{u.recoveryBalance||0}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -3439,6 +3470,97 @@ function ReportsView({users,requests,activities,tsStatuses}) {
           })()}
         </RC>
 
+      </div>
+    </div>
+  );
+}
+
+// ─── LEAVE BALANCES MANAGEMENT ────────────────────────────────────────────────
+function LeaveBalancesView({users,setUsers,roles,user}) {
+  const [filter,setFilter]=useState("");
+  const [deptFilter,setDeptFilter]=useState("");
+  const [editId,setEditId]=useState(null);
+  const [editForm,setEditForm]=useState({leaveBalance:0,usedLeave:0,recoveryBalance:0});
+  const [saving,setSaving]=useState(false);
+
+  const depts=[...new Set(users.filter(u=>u.dept).map(u=>u.dept))].sort();
+  const filtered=users.filter(u=>u.active!==false)
+    .filter(u=>!filter||u.name.toLowerCase().includes(filter.toLowerCase())||u.email?.toLowerCase().includes(filter.toLowerCase()))
+    .filter(u=>!deptFilter||u.dept===deptFilter)
+    .sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+
+  function startEdit(u){
+    setEditId(u.id);
+    setEditForm({leaveBalance:Number(u.leaveBalance)||0,usedLeave:Number(u.usedLeave)||0,recoveryBalance:Number(u.recoveryBalance)||0});
+  }
+  async function saveBalance(){
+    setSaving(true);
+    try{
+      const u=users.find(x=>x.id===editId);
+      await usersAPI.update(editId,{name:u.name,role:u.role,type:u.type,dept:u.dept,manager:u.manager,functionalManager:u.functionalManager,leaveBalance:editForm.leaveBalance,usedLeave:editForm.usedLeave,recoveryBalance:editForm.recoveryBalance,active:u.active!==false});
+      setUsers(prev=>prev.map(x=>x.id===editId?{...x,leaveBalance:editForm.leaveBalance,usedLeave:editForm.usedLeave,recoveryBalance:editForm.recoveryBalance}:x));
+      setEditId(null);
+    }catch(e){toast("Failed to save: "+e.message);}
+    setSaving(false);
+  }
+
+  const totAnnual=filtered.reduce((s,u)=>s+Number(u.leaveBalance||0),0);
+  const totUsed=filtered.reduce((s,u)=>s+Number(u.usedLeave||0),0);
+  const totRecovery=filtered.reduce((s,u)=>s+Number(u.recoveryBalance||0),0);
+
+  return(
+    <div>
+      <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap"}}>
+        <div className="sg" style={{flex:1,minWidth:0}}>
+          <div className="sc"><div className="sa" style={{background:"#10b981"}}/><div className="sl">Total Annual</div><div className="sv" style={{color:"var(--gr)"}}>{totAnnual}</div><div className="sc2 neu">days allocated</div></div>
+          <div className="sc"><div className="sa" style={{background:"#f59e0b"}}/><div className="sl">Total Used</div><div className="sv" style={{color:"var(--am)"}}>{totUsed}</div><div className="sc2 neu">days consumed</div></div>
+          <div className="sc"><div className="sa" style={{background:"#0ea5e9"}}/><div className="sl">Total Remaining</div><div className="sv" style={{color:"var(--sk)"}}>{totAnnual-totUsed}</div><div className="sc2 neu">days available</div></div>
+          <div className="sc"><div className="sa" style={{background:"#7c3aed"}}/><div className="sl">Recovery Pool</div><div className="sv" style={{color:"var(--v)"}}>{totRecovery}</div><div className="sc2 neu">days accrued</div></div>
+        </div>
+      </div>
+      <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
+        <input className="fi" placeholder="Search by name or email..." value={filter} onChange={e=>setFilter(e.target.value)} style={{flex:1,minWidth:200,maxWidth:300}}/>
+        <select className="fi" value={deptFilter} onChange={e=>setDeptFilter(e.target.value)} style={{maxWidth:180}}>
+          <option value="">All Departments</option>
+          {depts.map(d=><option key={d} value={d}>{d}</option>)}
+        </select>
+        <span style={{fontSize:12,color:"var(--t3)"}}>{filtered.length} employees</span>
+      </div>
+      <div className="tw">
+        <table className="tbl">
+          <thead><tr>
+            <th>Employee</th><th>Department</th><th>Type</th>
+            <th style={{textAlign:"center"}}>Annual</th><th style={{textAlign:"center"}}>Used</th><th style={{textAlign:"center"}}>Remaining</th><th style={{textAlign:"center"}}>Recovery</th>
+            <th style={{width:100}}/>
+          </tr></thead>
+          <tbody>
+            {filtered.map(u=>{
+              const rem=Math.max(0,Number(u.leaveBalance||0)-Number(u.usedLeave||0));
+              const isEditing=editId===u.id;
+              return(
+                <tr key={u.id}>
+                  <td><div style={{fontWeight:600,fontSize:13}}>{u.name}</div><div style={{fontSize:11,color:"var(--t3)"}}>{u.email}</div></td>
+                  <td>{u.dept||"—"}</td>
+                  <td><span className={`badge ${u.type==="field"?"bsk":"bv"}`}>{u.type==="field"?"Field":"Office"}</span></td>
+                  <td style={{textAlign:"center"}}>{isEditing?<input type="number" className="fi" style={{width:60,textAlign:"center",padding:"4px"}} value={editForm.leaveBalance} onChange={e=>setEditForm(f=>({...f,leaveBalance:Number(e.target.value)}))}/>:<span style={{fontWeight:600}}>{u.leaveBalance||0}</span>}</td>
+                  <td style={{textAlign:"center"}}>{isEditing?<input type="number" className="fi" style={{width:60,textAlign:"center",padding:"4px"}} value={editForm.usedLeave} onChange={e=>setEditForm(f=>({...f,usedLeave:Number(e.target.value)}))}/>:<span style={{fontWeight:600,color:"var(--am)"}}>{u.usedLeave||0}</span>}</td>
+                  <td style={{textAlign:"center"}}><span style={{fontWeight:700,color:rem<=2?"var(--re)":rem<=5?"var(--am)":"var(--gr)"}}>{isEditing?Math.max(0,editForm.leaveBalance-editForm.usedLeave):rem}</span></td>
+                  <td style={{textAlign:"center"}}>{isEditing?<input type="number" className="fi" style={{width:60,textAlign:"center",padding:"4px"}} value={editForm.recoveryBalance} onChange={e=>setEditForm(f=>({...f,recoveryBalance:Number(e.target.value)}))}/>:<span style={{fontWeight:600,color:"var(--v)"}}>{u.recoveryBalance||0}</span>}</td>
+                  <td style={{textAlign:"right"}}>
+                    {isEditing?(
+                      <div style={{display:"flex",gap:4,justifyContent:"flex-end"}}>
+                        <button className="btn bp bsm" onClick={saveBalance} disabled={saving}>{saving?"...":"Save"}</button>
+                        <button className="btn bo bsm" onClick={()=>setEditId(null)}>Cancel</button>
+                      </div>
+                    ):(
+                      <button className="btn bo bsm" onClick={()=>startEdit(u)}>Edit</button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -6106,12 +6228,13 @@ export default function App() {
     {key:"org-chart",  label:"Org Chart",   ico:"🏢", show:!isSA},
     {key:"analytics",  label:"Analytics",   ico:"📊", show:(hasAna||hasHR)&&!isSA},
     {key:"approvals",  label:"Approvals",   ico:"✅", show:canApp&&!isSA, badge:totalBadge},
+    {key:"balances",   label:"Leave Balances",ico:"📊", show:(isAd||hasHR)&&!isSA},
     {key:"hr-report",  label:"HR Report",   ico:"📋", show:hasHR&&!isSA},
     {key:"audit",      label:"Audit Trail", ico:"📋", show:(isAd||hasHR)&&!isSA},
     {key:"settings",   label:"Settings",    ico:"⚙️", show:isAd},
   ].filter(n => n.show);
 
-  const TITLES = {dashboard:"Dashboard",schedule:"My Schedule",erp_rota:"ERP Duty Rota",timesheet:"Timesheet",requests:"My Requests","org-chart":"Organisation Chart",analytics:"Analytics & Reports",approvals:"Approvals","hr-report":"HR Report",audit:"Audit Trail",settings:"Settings"};
+  const TITLES = {dashboard:"Dashboard",schedule:"My Schedule",erp_rota:"ERP Duty Rota",timesheet:"Timesheet",requests:"My Requests","org-chart":"Organisation Chart",analytics:"Analytics & Reports",approvals:"Approvals",balances:"Leave Balances","hr-report":"HR Report",audit:"Audit Trail",settings:"Settings"};
   const PAGE_META = {
     dashboard:   {desc:"Overview of your activity, leave balances, and key metrics",section:"Home"},
     schedule:    {desc:"Field rotation calendar with ON/OFF cycles and availability",section:"Operations"},
@@ -6121,6 +6244,7 @@ export default function App() {
     "org-chart": {desc:"Interactive organisation structure and reporting lines",section:"People"},
     analytics:   {desc:"Hours breakdown, project allocation, and workforce analytics",section:"Reports"},
     approvals:   {desc:"Review and approve pending timesheets and requests",section:"Management"},
+    balances:    {desc:"Manage employee annual leave, used days, and recovery balances",section:"Management"},
     "hr-report": {desc:"Payroll summaries, attendance, and compliance reports",section:"Reports"},
     audit:       {desc:"System activity log with user actions and change history",section:"Administration"},
     settings:    {desc:"Users, roles, projects, activities, and system configuration",section:"Administration"},
@@ -6272,6 +6396,7 @@ export default function App() {
                 {view==="org-chart"  && <OrgChartView user={user} users={users} roles={roles}/>}
                 {view==="analytics"  && (hasAna||hasHR) && <AnalyticsReports user={user} requests={requests} users={users} projects={projects} roles={roles} tsStatuses={tsStatuses} activities={activities}/>}
                 {view==="approvals"  && canApp && <ApprovalsView user={user} requests={requests} setRequests={setRequests} users={users} setUsers={setUsers} roles={roles} tsStatuses={tsStatuses} setTsStatuses={setTsStatuses} timesheetData={timesheetData} setTimesheetData={setTimesheetData} projects={projects} activities={activities} rotations={rotationPlans}/>}
+                {view==="balances"   && (isAd||hasHR) && <LeaveBalancesView users={users} setUsers={setUsers} roles={roles} user={user}/>}
                 {view==="hr-report"  && hasHR  && <HRReport requests={requests} users={users} tsStatuses={tsStatuses} activities={activities}/>}
                 {view==="audit"      && (isAd||hasHR) && <AuditTrailView users={users}/>}
                 {view==="settings"   && isAd   && <Settings user={user} users={users} setUsers={setUsers} projects={projects} setProjects={setProjects} roles={roles} setRoles={setRoles} onResetPwd={adminResetPwd} activities={activities} setActivities={setActivities} holidays={holidays} setHolidays={setHolidays} entities={entities} setEntities={setEntities} workflows={workflows} setWorkflows={setWorkflows}/>}
