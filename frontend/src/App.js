@@ -1331,11 +1331,10 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
           const pendingReqs=monthReqs.filter(r=>r.status==="Pending"||r.status==="Pending L2");
           const approvedReqs=monthReqs.filter(r=>r.status==="Approved");
           const hasRequests=monthReqs.length>0;
-          const canOpen=!isFuture||hasRequests;
           const borderCol=st==="approved"?"var(--gr)":st==="submitted"?"var(--am)":st==="rejected"?"var(--re)":"var(--b)";
           return (
-            <div key={m} className="card" style={{cursor:canOpen?"pointer":"default",opacity:isFuture&&!hasRequests?.55:1,border:`1.5px solid ${borderCol}`,transition:"box-shadow .15s"}}
-              onClick={()=>canOpen&&openDetail(year,m)}>
+            <div key={m} className="card" style={{cursor:"pointer",opacity:1,border:`1.5px solid ${borderCol}`,transition:"box-shadow .15s"}}
+              onClick={()=>openDetail(year,m)}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
                 <span style={{fontWeight:700,fontSize:15}}>{MONTHS[m]}</span>
                 <TSStatusBadge status={st}/>
