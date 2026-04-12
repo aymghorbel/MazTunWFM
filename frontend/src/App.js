@@ -1159,14 +1159,15 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
   function applyDefaultProject(){
     const pid=Number(defaultProject);
     if(!pid){toast("Please select a default project first.");return;}
-    let count=0;
+    // Count eligible days first from current entries
+    const cur=entries;
+    const eligible=cur.filter(e=>!e.locked&&!isLocked&&!LEAVE_ACTS_PS.includes(e.activity));
+    if(eligible.length===0){toast("No editable non-leave days found.");return;}
     setEntries(prev=>prev.map(e=>{
       if(e.locked||isLocked||LEAVE_ACTS_PS.includes(e.activity)) return e;
-      count++;
       return{...e,allocations:[{id:Date.now()+Math.random(),projectId:pid,allocation:1.0,note:""}]};
     }));
-    if(count===0) toast("No editable non-leave days found.");
-    else toast(`Applied default project to ${count} days.`,"info");
+    toast(`Applied default project to ${eligible.length} days.`,"info");
   }
 
   function copyPrevMonth(){
