@@ -2063,7 +2063,7 @@ function ApprovalsView({user,requests,setRequests,users,setUsers,roles,tsStatuse
 }
 
 // ─── REQUESTS VIEW ────────────────────────────────────────────────────────────
-function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses,activities}) {
+function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses,setTsStatuses,activities}) {
   const [tab,setTab]=useState("mine");
   const [show,setShow]=useState(false);
   const [form,setForm]=useState({type:"",start:"",end:"",comment:"",halfDayStart:"",halfDayEnd:"",durationHours:1,balanceSource:"annual",authStartTime:"08:00",authEndTime:"10:00"});
@@ -2210,6 +2210,14 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
       if((created.daysDeducted||0)>0&&setUsers) setUsers(p=>p.map(u=>u.id===user.id?{...u,leaveBalance:u.leaveBalance-created.daysDeducted,usedLeave:u.usedLeave+created.daysDeducted}:u));
       if((created.recoveryDeducted||0)>0&&setUsers) setUsers(p=>p.map(u=>u.id===user.id?{...u,recoveryBalance:u.recoveryBalance-created.recoveryDeducted}:u));
       setRequests(p=>[...p,{id:created.id,userId:created.user_id,type:created.type,start:created.start_date?.slice(0,10),end:created.end_date?.slice(0,10),daysCount:Number(created.days_count),durationHours:created.duration_hours?Number(created.duration_hours):null,halfDayStart:created.half_day_start||"",halfDayEnd:created.half_day_end||"",balanceSource:created.balance_source||"annual",authStartTime:created.auth_start_time||null,authEndTime:created.auth_end_time||null,status:created.status,comment:created.comment,attachmentUrl:created.attachment_url||null}]);
+      // Enable future months covered by this request in timesheet
+      if(!isDoc&&setTsStatuses){
+        const rs=new Date(startDate),re=new Date(isDoc?startDate:endDate);
+        for(let d=new Date(rs.getFullYear(),rs.getMonth(),1);d<=re;d.setMonth(d.getMonth()+1)){
+          const mk=tsKey(user.id,d.getFullYear(),d.getMonth());
+          if(!tsStatuses[mk]) setTsStatuses(prev=>({...prev,[mk]:{status:"draft",submittedAt:null,reviewComment:"",reviewedBy:null,reviewedAt:null}}));
+        }
+      }
       setShow(false);setForm({type:"",start:"",end:"",comment:"",halfDayStart:"",halfDayEnd:"",durationHours:1,balanceSource:"annual",authStartTime:"08:00",authEndTime:"10:00"});setAttachFile(null);setAttachUrl("");
     }catch(err){toast('Failed to submit request: '+err.message);}
   }
@@ -2347,18 +2355,6 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
                   {leaveTypes.map(t=>(
                     <button key={t} type="button"
                       onClick={()=>setForm(f=>({...f,type:t,halfDayStart:HALF_DAY_TYPES.includes(t)?f.halfDayStart:"",halfDayEnd:HALF_DAY_TYPES.includes(t)?f.halfDayEnd:""}))}
-                      style={{padding:"8px 10px",borderRadius:"var(--rs)",border:`1.5px solid ${form.type===t?"var(--v)":"var(--b)"}`,background:form.type===t?"var(--vl)":"var(--surface)",cursor:"pointer",display:"flex",alignItems:"center",gap:7,fontSize:12,fontWeight:form.type===t?700:400,color:form.type===t?"var(--v)":"var(--t2)",textAlign:"left",transition:"all .15s"}}>
-                      <span style={{fontSize:15}}>{icos[t]||"📋"}</span>{t}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="fgrp ff">
-                <label className="flbl">Administrative Documents</label>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(148px,1fr))",gap:6,marginTop:4}}>
-                  {ADMIN_DOC_TYPES.map(t=>(
-                    <button key={t} type="button"
-                      onClick={()=>setForm(f=>({...f,type:t,start:"",end:"",halfDayStart:"",halfDayEnd:"",balanceSource:"annual"}))}
                       style={{padding:"8px 10px",borderRadius:"var(--rs)",border:`1.5px solid ${form.type===t?"var(--v)":"var(--b)"}`,background:form.type===t?"var(--vl)":"var(--surface)",cursor:"pointer",display:"flex",alignItems:"center",gap:7,fontSize:12,fontWeight:form.type===t?700:400,color:form.type===t?"var(--v)":"var(--t2)",textAlign:"left",transition:"all .15s"}}>
                       <span style={{fontSize:15}}>{icos[t]||"📋"}</span>{t}
                     </button>
@@ -6058,6 +6054,15 @@ export default function App() {
         <div className={`sb-overlay${sidebarOpen?" open":""}`} onClick={()=>setSidebarOpen(false)}/>
 
         <aside className={`sb${sidebarOpen?" open":""}`}>
+          <div style={{padding:"14px 16px",borderBottom:"1px solid var(--b)",display:"flex",alignItems:"center",gap:10,cursor:"pointer"}} onClick={()=>{setView("dashboard");setSidebarOpen(false);}}>
+            {companySetting.logoBase64
+              ? <img src={companySetting.logoBase64} alt="logo" style={{width:32,height:32,borderRadius:6,objectFit:"contain",flexShrink:0}}/>
+              : <div className="logo-ico" style={{width:32,height:32,fontSize:12,borderRadius:6}}>{(companySetting.companyName||"ME").slice(0,2).toUpperCase()}</div>}
+            <div style={{minWidth:0}}>
+              <div className="logo-co" style={{fontSize:14,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{companySetting.companyName||"MAZARINE"}</div>
+              {companySetting.companySubtitle && <div className="logo-sub" style={{fontSize:10,color:"var(--t3)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{companySetting.companySubtitle}</div>}
+            </div>
+          </div>
           <nav className="nav" style={{paddingTop:12}}>
             <div className="nl">Navigation</div>
             {NAV.slice(0, isSA ? 2 : 5).map(n => (
@@ -6096,29 +6101,7 @@ export default function App() {
               <button className="hamburger" onClick={()=>setSidebarOpen(o=>!o)} aria-label="Menu">
                 <span/><span/><span/>
               </button>
-              <div className="topbar-logo" style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}} onClick={()=>setView("dashboard")}>
-                {companySetting.logoBase64
-                  ? <img src={companySetting.logoBase64} alt="logo" style={{width:28,height:28,borderRadius:4,objectFit:"contain",flexShrink:0}}/>
-                  : <div className="logo-ico" style={{width:28,height:28,fontSize:11,borderRadius:4}}>{(companySetting.companyName||"ME").slice(0,2).toUpperCase()}</div>}
-                <span className="topbar-logo-text" style={{fontSize:14,fontWeight:700,whiteSpace:"nowrap"}}>{companySetting.companyName||"MAZARINE"}</span>
-              </div>
-            </div>
-            {/* Search bar */}
-            <div className="topbar-search">
-              <span style={{color:"var(--t3)",fontSize:14,flexShrink:0}}>🔍</span>
-              <input
-                type="text"
-                placeholder="Search pages, users, projects..."
-                className="topbar-search-input"
-                onKeyDown={e => {
-                  if (e.key === "Enter" && e.target.value.trim()) {
-                    const q = e.target.value.trim().toLowerCase();
-                    const match = NAV.find(n => n.label.toLowerCase().includes(q) || n.key.includes(q));
-                    if (match) { setView(match.key); e.target.value = ""; e.target.blur(); toast(`Navigated to ${match.label}`,"info"); }
-                    else toast("No matching page found.");
-                  }
-                }}
-              />
+              <span className="pg-title">{NAV.find(n=>n.key===view)?.label||"Dashboard"}</span>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
               <span className="topbar-date" style={{fontSize:12,color:"var(--t3)",fontFamily:"'JetBrains Mono',monospace"}}>
@@ -6202,7 +6185,7 @@ export default function App() {
                 {view==="schedule"   && <ScheduleView user={user} rotations={rotationPlans} users={users} rotationPlans={rotationPlans} setRotationPlans={setRotationPlans} canManage={isAd||hasHR}/>}
                 {view==="erp_rota"   && <ERPDutyRotaView user={user} users={users} roles={roles} requests={requests}/>}
                 {view==="timesheet"  && <TimesheetView user={user} projects={projects} timesheetData={timesheetData} setTimesheetData={setTimesheetData} tsStatuses={tsStatuses} setTsStatuses={setTsStatuses} activities={activities} rotations={rotationPlans}/>}
-                {view==="requests"   && <RequestsView  user={user} requests={requests} setRequests={setRequests} users={users} roles={roles} setUsers={setUsers} tsStatuses={tsStatuses} activities={activities}/>}
+                {view==="requests"   && <RequestsView  user={user} requests={requests} setRequests={setRequests} users={users} roles={roles} setUsers={setUsers} tsStatuses={tsStatuses} setTsStatuses={setTsStatuses} activities={activities}/>}
                 {view==="org-chart"  && <OrgChartView user={user} users={users} roles={roles}/>}
                 {view==="analytics"  && (hasAna||hasHR) && <AnalyticsReports user={user} requests={requests} users={users} projects={projects} roles={roles} tsStatuses={tsStatuses} activities={activities}/>}
                 {view==="approvals"  && canApp && <ApprovalsView user={user} requests={requests} setRequests={setRequests} users={users} setUsers={setUsers} roles={roles} tsStatuses={tsStatuses} setTsStatuses={setTsStatuses} timesheetData={timesheetData} setTimesheetData={setTimesheetData} projects={projects} activities={activities} rotations={rotationPlans}/>}
