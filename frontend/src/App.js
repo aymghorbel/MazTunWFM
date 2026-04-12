@@ -1159,12 +1159,17 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
   function applyDefaultProject(){
     const pid=Number(defaultProject);
     if(!pid){toast("Please select a default project first.");return;}
-    // Count eligible days first from current entries
-    const cur=entries;
-    const eligible=cur.filter(e=>!e.locked&&!isLocked&&!LEAVE_ACTS_PS.includes(e.activity));
-    if(eligible.length===0){toast("No editable non-leave days found.");return;}
+    // Eligible: non-leave days that have no allocation or empty allocation
+    const eligible=entries.filter(e=>{
+      if(LEAVE_ACTS_PS.includes(e.activity)) return false;
+      if(isLocked) return false;
+      // Include days with no allocations or no project set (even if locked from approved requests)
+      return e.allocations.length===0||!e.allocations.some(a=>a.projectId);
+    });
+    if(eligible.length===0){toast("All non-leave days already have a project assigned.");return;}
+    const eligibleIds=new Set(eligible.map(e=>e.id));
     setEntries(prev=>prev.map(e=>{
-      if(e.locked||isLocked||LEAVE_ACTS_PS.includes(e.activity)) return e;
+      if(!eligibleIds.has(e.id)) return e;
       return{...e,allocations:[{id:Date.now()+Math.random(),projectId:pid,allocation:1.0,note:""}]};
     }));
     toast(`Applied default project to ${eligible.length} days.`,"info");
