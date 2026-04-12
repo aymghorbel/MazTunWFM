@@ -1044,8 +1044,34 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
   const isLocked=status==="submitted"||status==="approved";
   const LEAVE_ACTS_PS=activities.filter(a=>a.isLeave).map(a=>a.name);
 
-  const entries=useMemo(()=>timesheetData[key]||buildEntries(user,year,month,projects,activities,rotations),[key,timesheetData,user,year,month,projects,activities,rotations]);
-  const editableEntries=useMemo(()=>entries.filter(e=>!e.locked),[entries]);
+  const rawEntries=useMemo(()=>timesheetData[key]||buildEntries(user,year,month,projects,activities,rotations),[key,timesheetData,user,year,month,projects,activities,rotations]);
+
+  // Overlay pending request activities onto timesheet entries
+  const pendingByDate=useMemo(()=>{
+    const map={};
+    const monthStart=`${year}-${pad(month+1)}-01`, monthEnd=`${year}-${pad(month+1)}-${pad(daysIn(year,month))}`;
+    requests.filter(r=>r.userId===user.id&&(r.status==="Pending"||r.status==="Pending L2")&&r.start<=monthEnd&&r.end>=monthStart)
+      .forEach(r=>{
+        const s=new Date(Math.max(new Date(r.start),new Date(monthStart)));
+        const e=new Date(Math.min(new Date(r.end),new Date(monthEnd)));
+        for(let d=new Date(s);d<=e;d.setDate(d.getDate()+1)){
+          if(d.getDay()===0||d.getDay()===6) continue;
+          const ds=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+          map[ds]={type:r.type,status:r.status};
+        }
+      });
+    return map;
+  },[requests,user.id,year,month]);
+
+  const entries=useMemo(()=>{
+    return rawEntries.map(e=>{
+      const pr=pendingByDate[e.date];
+      if(pr&&!e.locked) return {...e,activity:pr.type,pendingRequest:true};
+      return e;
+    });
+  },[rawEntries,pendingByDate]);
+
+  const editableEntries=useMemo(()=>entries.filter(e=>!e.locked&&!e.pendingRequest),[entries]);
   const activityTypes=useMemo(()=>[...new Set(editableEntries.map(e=>e.activity))],[editableEntries]);
 
   const setEntries=useCallback(updater=>{
@@ -1470,14 +1496,15 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
                   const isOpen=expanded[e.id];
                   const tot=e.allocations.reduce((s,a)=>s+a.allocation,0);
                   const allocOk=Math.abs(tot-1)<0.01||e.allocations.length===0;
-                  const isLeaveEntry=LEAVE_ACTS_PS.includes(e.activity);
+                  const isPending=!!e.pendingRequest;
+                  const isLeaveEntry=LEAVE_ACTS_PS.includes(e.activity)||isPending;
                   const usedProjIds=e.allocations.map(a=>Number(a.projectId));const canAdd=tot<0.99&&!isLocked&&!isLeaveEntry&&openProj.some(p=>!usedProjIds.includes(p.id));
                   const ac=actColorFn(e.activity);
-                  const canExpand=!isLocked&&!isLeaveEntry;
-                  const canSelect=!e.locked&&!isLocked;
+                  const canExpand=!isLocked&&!isLeaveEntry&&!isPending;
+                  const canSelect=!e.locked&&!isLocked&&!isPending;
                   return (
                     <>
-                      <tr key={e.id} className={isSel?"sel-row":""} style={{cursor:canExpand?"pointer":"default",opacity:isLocked?.85:1}}
+                      <tr key={e.id} className={isSel?"sel-row":""} style={{cursor:canExpand?"pointer":"default",opacity:isLocked?.85:1,background:isPending?"var(--aml)":undefined}}
                         onClick={()=>{ if(canSelect){toggleSel(e.id);} else if(canExpand){toggleRow(e.id);} }}>
                         {!isLocked&&<td style={{paddingLeft:10}} onClick={ev=>ev.stopPropagation()}>
                           {canSelect&&<input type="checkbox" className="cb" checked={isSel} onChange={()=>toggleSel(e.id)}/>}
@@ -1492,14 +1519,14 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
                           <span className="badge" style={{background:ac+"18",color:ac,border:`1px solid ${ac}30`}}>{e.activity}</span>
                         </td>
                         <td style={{minWidth:140}}>
-                          {isLeaveEntry
+                          {isLeaveEntry||isPending
                             ? <span style={{fontSize:11,color:"var(--t3)"}}>—</span>
                             : e.allocations.length===0
                               ? <span style={{fontSize:11,color:"var(--re)",fontWeight:600}}>⚠ Not allocated</span>
                               : <div style={{display:"flex",alignItems:"center",gap:8}}><AllocBar allocations={e.allocations} projects={projects}/><span style={{fontSize:10,fontFamily:"'JetBrains Mono',monospace",color:"var(--t3)",whiteSpace:"nowrap"}}>{e.allocations.length}p</span></div>}
                         </td>
-                        <td>{isLeaveEntry?<span style={{fontSize:11,color:"var(--t3)"}}>—</span>:<span className={allocOk&&e.allocations.length>0?"ok":"warn"}>{e.allocations.length===0?"0%":(tot*100).toFixed(0)+"%"}</span>}</td>
-                        <td>{isLocked?<span className="badge bam">🔒 Locked</span>:e.locked?<span className="badge bgr">✓ Auto</span>:isSel?<span className="badge bv">☑ Selected</span>:<span className="badge bgr2">Draft</span>}</td>
+                        <td>{isLeaveEntry||isPending?<span style={{fontSize:11,color:"var(--t3)"}}>—</span>:<span className={allocOk&&e.allocations.length>0?"ok":"warn"}>{e.allocations.length===0?"0%":(tot*100).toFixed(0)+"%"}</span>}</td>
+                        <td>{isPending?<span className="badge bam">⏳ Pending</span>:isLocked?<span className="badge bam">🔒 Locked</span>:e.locked?<span className="badge bgr">✓ Auto</span>:isSel?<span className="badge bv">☑ Selected</span>:<span className="badge bgr2">Draft</span>}</td>
                       </tr>
                       {isOpen&&canExpand&&(
                         <tr key={e.id+"_al"}>
