@@ -2830,10 +2830,6 @@ function Dashboard({user,requests,projects,roles,tsStatuses,rotations=[],users=[
           {myR.length===0&&<div className="empty"><div className="empty-ico">📋</div>No requests yet</div>}
           {myR.slice(0,4).map(r=>(<div className="rc" key={r.id}><div className="ri" style={{background:"#f0f9ff"}}>{icos[r.type]||"📋"}</div><div style={{flex:1}}><div style={{fontWeight:700,fontSize:13}}>{r.type}</div><div style={{fontSize:11,color:"var(--t3)",fontFamily:"'JetBrains Mono',monospace"}}>{r.start} → {r.end}</div></div><StatusBadge status={r.status}/></div>))}
         </div>
-        <div className="card">
-          <div className="card-hd"><div className="card-title">My Projects</div></div>
-          {myProj.map(p=>(<div className="pc" key={p.id}><div className="pdot" style={{background:p.color}}/><div style={{flex:1}}><div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:700,color:"var(--t3)"}}>{p.code}</div><div style={{fontSize:13,fontWeight:600}}>{p.name}</div></div></div>))}
-        </div>
       </div>
       {/* ── ERP Duty Rota Summary ── */}
       {hasErp && erpActiveWeek && (
