@@ -16,6 +16,7 @@ const migrations = [
   'add_erp_rota.js',
   'add_missing_columns.js',
   'drop_project_type.js',
+  'add_departments_and_balances.js',
 ];
 
 const start = Date.now();

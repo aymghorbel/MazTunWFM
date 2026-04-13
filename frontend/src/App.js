@@ -1,6 +1,6 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from "recharts";
-import { authAPI, usersAPI, projectsAPI, requestsAPI, timesheetAPI, rolesAPI, payrollAPI, activitiesAPI, rotationAPI, companyAPI, totpAPI, auditAPI, emailAPI, pushAPI, holidaysAPI, companyEntitiesAPI, reportsAPI, workflowsAPI, erpRosterAPI, erpWeeksAPI, erpNotificationsAPI, uploadsAPI, verifySession } from "./api";
+import { authAPI, usersAPI, projectsAPI, requestsAPI, timesheetAPI, rolesAPI, payrollAPI, activitiesAPI, rotationAPI, companyAPI, totpAPI, auditAPI, emailAPI, pushAPI, holidaysAPI, companyEntitiesAPI, reportsAPI, workflowsAPI, erpRosterAPI, erpWeeksAPI, erpNotificationsAPI, uploadsAPI, verifySession, departmentsAPI, balanceTypesAPI, userBalancesAPI } from "./api";
 import { getMsalInstance, loginRequest, ssoEnabled } from "./msalConfig";
 
 // ─── Export helpers ────────────────────────────────────────────────────────────
@@ -2218,6 +2218,7 @@ function ApprovalsView({user,requests,setRequests,users,setUsers,roles,tsStatuse
 // ─── REQUESTS VIEW ────────────────────────────────────────────────────────────
 function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses,setTsStatuses,activities}) {
   const [tab,setTab]=useState("mine");
+  const [mineFilter,setMineFilter]=useState("pending");
   const [show,setShow]=useState(false);
   const [form,setForm]=useState({type:"",start:"",end:"",comment:"",halfDayStart:"",halfDayEnd:"",durationHours:1,balanceSource:"annual",authStartTime:"08:00",authEndTime:"10:00"});
   const [attachFile,setAttachFile]=useState(null); // File object
@@ -2410,18 +2411,29 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
     <div>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
         <div className="tabs" style={{margin:0}}>
-          <div className={`tab ${tab==="mine"?"active":""}`} onClick={()=>setTab("mine")}>📋 My Requests <span style={{fontSize:11,opacity:.7}}>{myR.filter(r=>r.status==="Pending").length>0?`(${myR.filter(r=>r.status==="Pending").length} pending)`:""}</span></div>
+          <div className={`tab ${tab==="mine"?"active":""}`} onClick={()=>setTab("mine")}>📋 My Requests <span style={{fontSize:11,opacity:.7}}>{myR.filter(r=>r.status==="Pending"||r.status==="Pending L2").length>0?`(${myR.filter(r=>r.status==="Pending"||r.status==="Pending L2").length} pending)`:""}</span></div>
           {teamIds.length>0&&<div className={`tab ${tab==="team"?"active":""}`} onClick={()=>setTab("team")} style={{display:"flex",alignItems:"center",gap:5}}>👥 Team {conflictIds.size>0&&<span className="nbadge" style={{background:"var(--am)"}}>⚠</span>}</div>}
-          <div className={`tab ${tab==="history"?"active":""}`} onClick={()=>setTab("history")}>📜 History {histR.length>0&&<span style={{fontSize:11,opacity:.7}}>({histR.length})</span>}</div>
         </div>
         <button className="btn bp bsm" onClick={()=>setShow(true)}>+ New Request</button>
       </div>
 
       {/* ── My Requests tab ── */}
-      {tab==="mine"&&(
+      {tab==="mine"&&(()=>{
+        const filtered=myR.filter(r=>{
+          if(mineFilter==="all")return true;
+          if(mineFilter==="pending")return r.status==="Pending"||r.status==="Pending L2";
+          return r.status===mineFilter;
+        }).sort((a,b)=>(b.start||"").localeCompare(a.start||""));
+        return(
         <div>
-          {myR.length===0&&<div className="empty"><div className="empty-ico">📋</div>No requests yet</div>}
-          {myR.map(r=>(
+          <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
+            {[["pending","⏳ Pending",myR.filter(r=>r.status==="Pending"||r.status==="Pending L2").length],["Approved","✅ Approved",myR.filter(r=>r.status==="Approved").length],["Rejected","❌ Rejected",myR.filter(r=>r.status==="Rejected").length],["Cancelled","🚫 Cancelled",myR.filter(r=>r.status==="Cancelled").length],["all","All",myR.length]].map(([v,l,cnt])=>(
+              <button key={v} onClick={()=>setMineFilter(v)} style={{padding:"4px 12px",borderRadius:20,border:`1px solid ${mineFilter===v?"var(--v)":"var(--b)"}`,background:mineFilter===v?"var(--v)":"var(--s2)",color:mineFilter===v?"#fff":"var(--t2)",fontSize:12,cursor:"pointer",fontWeight:mineFilter===v?600:400}}>
+                {l}{cnt>0?` (${cnt})`:""}</button>
+            ))}
+          </div>
+          {filtered.length===0&&<div className="empty"><div className="empty-ico">📋</div>{myR.length===0?"No requests yet":"No requests match this filter"}</div>}
+          {filtered.map(r=>(
             <div className="rc" key={r.id} style={{cursor:"pointer"}} onClick={(e)=>{if(e.target.tagName!=="BUTTON")openDetail(r);}}>
               <div className="ri" style={{background:r.type==="Annual Leave"?"#d1fae5":r.type==="Sick Leave"?"#fee2e2":"#f0f9ff"}}>{icos[r.type]||"📋"}</div>
               <div style={{flex:1}}><div style={{fontWeight:700,fontSize:13}}>{r.type}{r.balanceSource==="recovery"&&<span style={{marginLeft:5,fontSize:10,color:"var(--v)",fontWeight:400}}>🔄 Recovery</span>}</div><div style={{fontSize:11,color:"var(--t3)",fontFamily:"'JetBrains Mono',monospace"}}>{r.type==="Temporary Authorization"?`${r.start} · ${r.authStartTime||""}→${r.authEndTime||""} (${r.durationHours}h)`:`${r.start}${r.halfDayStart?" "+r.halfDayStart:""}${r.end!==r.start?" → "+r.end+(r.halfDayEnd?" "+r.halfDayEnd:""):""} · ${r.daysCount===0.5?"½ day":r.daysCount+"d"}`}{r.comment?" · "+r.comment:""}</div></div>
@@ -2435,10 +2447,11 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
             </div>
           ))}
         </div>
-      )}
+        );
+      })()}
 
-      {/* ── History tab ── */}
-      {tab==="history"&&(
+      {/* ── History tab (removed — merged into My Requests filter) ── */}
+      {false&&tab==="history"&&(
         <div>
           {/* Status filter pills */}
           <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
@@ -3620,13 +3633,24 @@ function ReportsView({users,requests,activities,tsStatuses}) {
 }
 
 // ─── LEAVE BALANCES MANAGEMENT ────────────────────────────────────────────────
-function LeaveBalancesView({users,setUsers,roles,user}) {
+function LeaveBalancesView({users,setUsers,roles,user,balanceTypes=[],userBalances=[],setUserBalances}) {
   const [filter,setFilter]=useState("");
   const [deptFilter,setDeptFilter]=useState("");
   const [editId,setEditId]=useState(null);
-  const [editForm,setEditForm]=useState({leaveBalance:0,usedLeave:0,recoveryBalance:0});
+  const [editForm,setEditForm]=useState({}); // {balanceTypeId: {balance, used}}
   const [saving,setSaving]=useState(false);
 
+  // Build map: userId -> balanceTypeId -> {balance, used}
+  const balanceMap=useMemo(()=>{
+    const m={};
+    userBalances.forEach(b=>{
+      m[b.user_id]=m[b.user_id]||{};
+      m[b.user_id][b.balance_type_id]={balance:Number(b.balance||0),used:Number(b.used||0),color:b.balance_type_color};
+    });
+    return m;
+  },[userBalances]);
+
+  const activeTypes=balanceTypes.filter(b=>b.active!==false).sort((a,b)=>(a.sort_order||0)-(b.sort_order||0));
   const depts=[...new Set(users.filter(u=>u.dept).map(u=>u.dept))].sort();
   const filtered=users.filter(u=>u.active!==false)
     .filter(u=>!filter||u.name.toLowerCase().includes(filter.toLowerCase())||u.email?.toLowerCase().includes(filter.toLowerCase()))
@@ -3635,32 +3659,47 @@ function LeaveBalancesView({users,setUsers,roles,user}) {
 
   function startEdit(u){
     setEditId(u.id);
-    setEditForm({leaveBalance:Number(u.leaveBalance)||0,usedLeave:Number(u.usedLeave)||0,recoveryBalance:Number(u.recoveryBalance)||0});
+    const form={};
+    activeTypes.forEach(bt=>{
+      const b=balanceMap[u.id]?.[bt.id]||{balance:Number(bt.default_balance||0),used:0};
+      form[bt.id]={balance:b.balance,used:b.used};
+    });
+    setEditForm(form);
   }
   async function saveBalance(){
     setSaving(true);
     try{
-      const u=users.find(x=>x.id===editId);
-      await usersAPI.update(editId,{name:u.name,role:u.role,type:u.type,dept:u.dept,manager:u.manager,functionalManager:u.functionalManager,leaveBalance:editForm.leaveBalance,usedLeave:editForm.usedLeave,recoveryBalance:editForm.recoveryBalance,active:u.active!==false});
-      setUsers(prev=>prev.map(x=>x.id===editId?{...x,leaveBalance:editForm.leaveBalance,usedLeave:editForm.usedLeave,recoveryBalance:editForm.recoveryBalance}:x));
+      const updates=[];
+      for(const bt of activeTypes){
+        const f=editForm[bt.id];if(!f)continue;
+        updates.push(userBalancesAPI.update({userId:editId,balanceTypeId:bt.id,balance:f.balance,used:f.used}));
+      }
+      await Promise.all(updates);
+      // Reload user balances
+      const fresh=await userBalancesAPI.getAll();
+      setUserBalances(fresh);
       setEditId(null);
     }catch(e){toast("Failed to save: "+e.message);}
     setSaving(false);
   }
 
-  const totAnnual=filtered.reduce((s,u)=>s+Number(u.leaveBalance||0),0);
-  const totUsed=filtered.reduce((s,u)=>s+Number(u.usedLeave||0),0);
-  const totRecovery=filtered.reduce((s,u)=>s+Number(u.recoveryBalance||0),0);
+  // Summary totals per type
+  const typeTotals=activeTypes.map(bt=>({
+    type:bt,
+    totBalance:filtered.reduce((s,u)=>s+(balanceMap[u.id]?.[bt.id]?.balance||0),0),
+    totUsed:filtered.reduce((s,u)=>s+(balanceMap[u.id]?.[bt.id]?.used||0),0),
+  }));
 
   return(
     <div>
-      <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap"}}>
-        <div className="sg" style={{flex:1,minWidth:0}}>
-          <div className="sc"><div className="sa" style={{background:"#10b981"}}/><div className="sl">Total Annual</div><div className="sv" style={{color:"var(--gr)"}}>{totAnnual}</div><div className="sc2 neu">days allocated</div></div>
-          <div className="sc"><div className="sa" style={{background:"#f59e0b"}}/><div className="sl">Total Used</div><div className="sv" style={{color:"var(--am)"}}>{totUsed}</div><div className="sc2 neu">days consumed</div></div>
-          <div className="sc"><div className="sa" style={{background:"#0ea5e9"}}/><div className="sl">Total Remaining</div><div className="sv" style={{color:"var(--sk)"}}>{totAnnual-totUsed}</div><div className="sc2 neu">days available</div></div>
-          <div className="sc"><div className="sa" style={{background:"#7c3aed"}}/><div className="sl">Recovery Pool</div><div className="sv" style={{color:"var(--v)"}}>{totRecovery}</div><div className="sc2 neu">days accrued</div></div>
-        </div>
+      <div style={{display:"grid",gridTemplateColumns:`repeat(auto-fill,minmax(180px,1fr))`,gap:10,marginBottom:16}}>
+        {typeTotals.map(tt=>(
+          <div key={tt.type.id} className="card" style={{padding:"10px 12px"}}>
+            <div style={{fontSize:11,color:"var(--t3)",fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>{tt.type.name}</div>
+            <div style={{fontSize:18,fontWeight:700,color:tt.type.color||"#10b981",marginTop:2}}>{tt.totBalance-tt.totUsed}<span style={{fontSize:11,color:"var(--t3)",marginLeft:4,fontWeight:400}}>/ {tt.totBalance}d</span></div>
+            <div style={{fontSize:10,color:"var(--t3)",marginTop:2}}>{tt.totUsed}d used</div>
+          </div>
+        ))}
       </div>
       <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
         <input className="fi" placeholder="Search by name or email..." value={filter} onChange={e=>setFilter(e.target.value)} style={{flex:1,minWidth:200,maxWidth:300}}/>
@@ -3674,22 +3713,36 @@ function LeaveBalancesView({users,setUsers,roles,user}) {
         <table className="tbl">
           <thead><tr>
             <th>Employee</th><th>Department</th><th>Type</th>
-            <th style={{textAlign:"center"}}>Annual</th><th style={{textAlign:"center"}}>Used</th><th style={{textAlign:"center"}}>Remaining</th><th style={{textAlign:"center"}}>Recovery</th>
+            {activeTypes.map(bt=><th key={bt.id} style={{textAlign:"center",color:bt.color||"var(--gr)"}} colSpan={2}>{bt.name}</th>)}
             <th style={{width:100}}/>
+          </tr><tr>
+            <th colSpan={3} style={{borderBottom:"none"}}/>
+            {activeTypes.map(bt=><React.Fragment key={bt.id}><th style={{textAlign:"center",fontSize:10,fontWeight:400,color:"var(--t3)"}}>Total</th><th style={{textAlign:"center",fontSize:10,fontWeight:400,color:"var(--t3)"}}>Used</th></React.Fragment>)}
+            <th/>
           </tr></thead>
           <tbody>
             {filtered.map(u=>{
-              const rem=Math.max(0,Number(u.leaveBalance||0)-Number(u.usedLeave||0));
               const isEditing=editId===u.id;
               return(
                 <tr key={u.id}>
                   <td><div style={{fontWeight:600,fontSize:13}}>{u.name}</div><div style={{fontSize:11,color:"var(--t3)"}}>{u.email}</div></td>
                   <td>{u.dept||"—"}</td>
                   <td><span className={`badge ${u.type==="field"?"bsk":"bv"}`}>{u.type==="field"?"Field":"Office"}</span></td>
-                  <td style={{textAlign:"center"}}>{isEditing?<input type="number" className="fi" style={{width:60,textAlign:"center",padding:"4px"}} value={editForm.leaveBalance} onChange={e=>setEditForm(f=>({...f,leaveBalance:Number(e.target.value)}))}/>:<span style={{fontWeight:600}}>{u.leaveBalance||0}</span>}</td>
-                  <td style={{textAlign:"center"}}>{isEditing?<input type="number" className="fi" style={{width:60,textAlign:"center",padding:"4px"}} value={editForm.usedLeave} onChange={e=>setEditForm(f=>({...f,usedLeave:Number(e.target.value)}))}/>:<span style={{fontWeight:600,color:"var(--am)"}}>{u.usedLeave||0}</span>}</td>
-                  <td style={{textAlign:"center"}}><span style={{fontWeight:700,color:rem<=2?"var(--re)":rem<=5?"var(--am)":"var(--gr)"}}>{isEditing?Math.max(0,editForm.leaveBalance-editForm.usedLeave):rem}</span></td>
-                  <td style={{textAlign:"center"}}>{isEditing?<input type="number" className="fi" style={{width:60,textAlign:"center",padding:"4px"}} value={editForm.recoveryBalance} onChange={e=>setEditForm(f=>({...f,recoveryBalance:Number(e.target.value)}))}/>:<span style={{fontWeight:600,color:"var(--v)"}}>{u.recoveryBalance||0}</span>}</td>
+                  {activeTypes.map(bt=>{
+                    const b=balanceMap[u.id]?.[bt.id]||{balance:0,used:0};
+                    const rem=Math.max(0,b.balance-b.used);
+                    return(
+                      <React.Fragment key={bt.id}>
+                        <td style={{textAlign:"center"}}>
+                          {isEditing?<input type="number" step="0.5" className="fi" style={{width:55,textAlign:"center",padding:"4px",fontSize:12}} value={editForm[bt.id]?.balance??0} onChange={e=>setEditForm(f=>({...f,[bt.id]:{...f[bt.id],balance:Number(e.target.value)}}))}/>:<span style={{fontWeight:600,fontSize:12}}>{b.balance}</span>}
+                        </td>
+                        <td style={{textAlign:"center"}}>
+                          {isEditing?<input type="number" step="0.5" className="fi" style={{width:55,textAlign:"center",padding:"4px",fontSize:12}} value={editForm[bt.id]?.used??0} onChange={e=>setEditForm(f=>({...f,[bt.id]:{...f[bt.id],used:Number(e.target.value)}}))}/>:<span style={{fontWeight:600,fontSize:12,color:b.used>0?"var(--am)":"var(--t3)"}}>{b.used}</span>}
+                          {!isEditing&&<div style={{fontSize:9,color:rem<=2?"var(--re)":rem<=5?"var(--am)":"var(--gr)"}}>({rem} left)</div>}
+                        </td>
+                      </React.Fragment>
+                    );
+                  })}
                   <td style={{textAlign:"right"}}>
                     {isEditing?(
                       <div style={{display:"flex",gap:4,justifyContent:"flex-end"}}>
@@ -3865,6 +3918,124 @@ function PushSettingsCard() {
 
 // ─── SETTINGS (abbreviated — same as v4 but with roles prop) ─────────────────
 // ─── ENTITIES TAB ─────────────────────────────────────────────────────────────
+function DepartmentsTab({departments,setDepartments}) {
+  const [name,setName]=useState("");
+  const [editing,setEditing]=useState(null);
+  const [editName,setEditName]=useState("");
+
+  async function add(){
+    const n=name.trim();if(!n)return;
+    try{const created=await departmentsAPI.create({name:n});setDepartments(p=>[...p,created]);setName("");}
+    catch(err){toast('Failed: '+err.message);}
+  }
+  async function save(d){
+    const n=editName.trim();if(!n)return;
+    try{const updated=await departmentsAPI.update(d.id,{name:n,active:d.active!==false,sortOrder:d.sort_order||0});setDepartments(p=>p.map(x=>x.id===d.id?updated:x));setEditing(null);}
+    catch(err){toast('Failed: '+err.message);}
+  }
+  async function toggle(d){
+    try{const updated=await departmentsAPI.update(d.id,{name:d.name,active:d.active===false,sortOrder:d.sort_order||0});setDepartments(p=>p.map(x=>x.id===d.id?updated:x));}
+    catch(err){toast('Failed: '+err.message);}
+  }
+  async function del(id){
+    if(!window.confirm('Delete this department?'))return;
+    try{await departmentsAPI.delete(id);setDepartments(p=>p.filter(x=>x.id!==id));}
+    catch(err){toast('Failed: '+err.message);}
+  }
+  return(
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <div><div style={{fontWeight:700,fontSize:15}}>Departments</div><div style={{fontSize:12,color:"var(--t3)"}}>{departments.filter(d=>d.active!==false).length} active · {departments.filter(d=>d.active===false).length} inactive</div></div>
+      </div>
+      <div style={{display:"flex",gap:8,marginBottom:14}}>
+        <input className="fi" placeholder="New department name..." value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&add()} style={{flex:1,maxWidth:300}}/>
+        <button className="btn bp bsm" onClick={add} disabled={!name.trim()}>+ Add</button>
+      </div>
+      <div className="tw"><table className="tbl"><thead><tr><th>Name</th><th>Status</th><th style={{width:140,textAlign:"right"}}>Actions</th></tr></thead><tbody>
+        {departments.map(d=>(
+          <tr key={d.id}>
+            <td>{editing===d.id?<input className="fi" value={editName} onChange={e=>setEditName(e.target.value)} autoFocus/>:<span style={{fontWeight:600}}>{d.name}</span>}</td>
+            <td><span className={`badge ${d.active!==false?"bgr":"bgr2"}`} style={{fontSize:10}}>{d.active!==false?"Active":"Inactive"}</span></td>
+            <td style={{textAlign:"right"}}>
+              {editing===d.id?
+                <div style={{display:"flex",gap:4,justifyContent:"flex-end"}}><button className="btn bp bxs" onClick={()=>save(d)}>Save</button><button className="btn bo bxs" onClick={()=>setEditing(null)}>Cancel</button></div>:
+                <div style={{display:"flex",gap:4,justifyContent:"flex-end"}}><button className="btn bg2 bxs" onClick={()=>{setEditing(d.id);setEditName(d.name);}}>✏️</button><label className="sw" style={{transform:"scale(.82)"}}><input type="checkbox" checked={d.active!==false} onChange={()=>toggle(d)}/><span className="sldr"/></label><button className="btn bd bxs" onClick={()=>del(d.id)}>🗑</button></div>}
+            </td>
+          </tr>
+        ))}
+      </tbody></table></div>
+    </div>
+  );
+}
+
+function BalanceTypesTab({balanceTypes,setBalanceTypes}) {
+  const BLANK={name:"",code:"",defaultBalance:0,color:"#10b981"};
+  const [form,setForm]=useState(BLANK);
+  const [editId,setEditId]=useState(null);
+
+  async function save(){
+    if(!form.name.trim()||!form.code.trim())return;
+    try{
+      if(editId){
+        const updated=await balanceTypesAPI.update(editId,{...form,active:true});
+        setBalanceTypes(p=>p.map(x=>x.id===editId?updated:x));
+      }else{
+        const created=await balanceTypesAPI.create(form);
+        setBalanceTypes(p=>[...p,created]);
+      }
+      setForm(BLANK);setEditId(null);
+    }catch(err){toast('Failed: '+err.message);}
+  }
+  async function del(id){
+    if(!window.confirm('Delete this balance type? Related user balances will also be removed.'))return;
+    try{await balanceTypesAPI.delete(id);setBalanceTypes(p=>p.filter(x=>x.id!==id));}
+    catch(err){toast('Failed: '+err.message);}
+  }
+  return(
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <div><div style={{fontWeight:700,fontSize:15}}>Balance Types</div><div style={{fontSize:12,color:"var(--t3)"}}>{balanceTypes.length} types defined</div></div>
+      </div>
+      <div style={{display:"flex",gap:8,marginBottom:14,padding:10,background:"var(--s2)",borderRadius:"var(--rs)",alignItems:"flex-end",flexWrap:"wrap"}}>
+        <div style={{display:"flex",flexDirection:"column",gap:3}}>
+          <label style={{fontSize:11,color:"var(--t3)"}}>Name</label>
+          <input className="fi" placeholder="e.g. Sick Leave" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} style={{width:180}}/>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:3}}>
+          <label style={{fontSize:11,color:"var(--t3)"}}>Code</label>
+          <input className="fi" placeholder="sick" value={form.code} onChange={e=>setForm(f=>({...f,code:e.target.value.toLowerCase().replace(/\s+/g,"_")}))} style={{width:120}}/>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:3}}>
+          <label style={{fontSize:11,color:"var(--t3)"}}>Default Days</label>
+          <input type="number" step="0.5" className="fi" value={form.defaultBalance} onChange={e=>setForm(f=>({...f,defaultBalance:Number(e.target.value)}))} style={{width:90}}/>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:3}}>
+          <label style={{fontSize:11,color:"var(--t3)"}}>Color</label>
+          <input type="color" value={form.color} onChange={e=>setForm(f=>({...f,color:e.target.value}))} style={{width:42,height:32,border:"1px solid var(--b)",borderRadius:4,padding:0,cursor:"pointer"}}/>
+        </div>
+        <button className="btn bp bsm" onClick={save} disabled={!form.name.trim()||!form.code.trim()}>{editId?"Save":"+ Add"}</button>
+        {editId&&<button className="btn bo bsm" onClick={()=>{setForm(BLANK);setEditId(null);}}>Cancel</button>}
+      </div>
+      <div className="tw"><table className="tbl"><thead><tr><th>Name</th><th>Code</th><th style={{textAlign:"center"}}>Default</th><th>Color</th><th style={{width:140,textAlign:"right"}}>Actions</th></tr></thead><tbody>
+        {balanceTypes.map(b=>(
+          <tr key={b.id}>
+            <td style={{fontWeight:600}}>{b.name}</td>
+            <td style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,color:"var(--t3)"}}>{b.code}</td>
+            <td style={{textAlign:"center",fontWeight:700}}>{b.default_balance}d</td>
+            <td><div style={{width:24,height:24,borderRadius:4,background:b.color||"#10b981",display:"inline-block"}}/></td>
+            <td style={{textAlign:"right"}}>
+              <div style={{display:"flex",gap:4,justifyContent:"flex-end"}}>
+                <button className="btn bg2 bxs" onClick={()=>{setForm({name:b.name,code:b.code,defaultBalance:b.default_balance,color:b.color});setEditId(b.id);}}>✏️</button>
+                <button className="btn bd bxs" onClick={()=>del(b.id)}>🗑</button>
+              </div>
+            </td>
+          </tr>
+        ))}
+      </tbody></table></div>
+    </div>
+  );
+}
+
 function EntitiesTab({entities,setEntities}) {
   const [entForm,setEntForm]=useState({code:"",name:""});
   const [entEditing,setEntEditing]=useState(null);
@@ -4323,7 +4494,7 @@ function AllocationReport() {
   );
 }
 
-function Settings({user,users,setUsers,projects,setProjects,roles,setRoles,activities,setActivities,holidays,setHolidays,entities,setEntities,workflows,setWorkflows,onResetPwd}) {
+function Settings({user,users,setUsers,projects,setProjects,roles,setRoles,activities,setActivities,holidays,setHolidays,entities,setEntities,workflows,setWorkflows,onResetPwd,departments=[],setDepartments,balanceTypes=[],setBalanceTypes}) {
   const [tab,setTab]=useState("users");
   const [editUser,setEditUser]=useState(null);
   const [showAdd,setShowAdd]=useState(false);
@@ -4567,7 +4738,7 @@ function Settings({user,users,setUsers,projects,setProjects,roles,setRoles,activ
   function togglePerm(perms,k){return perms.includes(k)?perms.filter(p=>p!==k):[...perms,k];}
   const filtProj=projects.filter(p=>pFilter==="all"||(pFilter==="open"&&p.open)||(pFilter==="closed"&&!p.open));
   // ── Activity management state
-  const BNA={name:"",visibleTo:"both",isLeave:false,color:"#7c3aed",active:true,sortOrder:0};
+  const BNA={name:"",visibleTo:"both",isLeave:false,color:"#7c3aed",active:true,sortOrder:0,balanceTypeId:null};
   const [actModal,setActModal]=useState(null); // null | "add" | activity object
   const [actForm,setActForm]=useState(BNA);
   // ── Holiday management state
@@ -4578,16 +4749,16 @@ function Settings({user,users,setUsers,projects,setProjects,roles,setRoles,activ
   async function addActivity(){
     if(!actForm.name.trim()){toast("Name required.");return;}
     try{
-      const r=await activitiesAPI.create({name:actForm.name,visibleTo:actForm.visibleTo,isLeave:actForm.isLeave,color:actForm.color,sortOrder:actForm.sortOrder});
-      setActivities(p=>[...p,{id:r.id,name:r.name,visibleTo:r.visible_to,isLeave:r.is_leave,color:r.color,active:r.active,sortOrder:r.sort_order}]);
+      const r=await activitiesAPI.create({name:actForm.name,visibleTo:actForm.visibleTo,isLeave:actForm.isLeave,color:actForm.color,sortOrder:actForm.sortOrder,balanceTypeId:actForm.balanceTypeId||null});
+      setActivities(p=>[...p,{id:r.id,name:r.name,visibleTo:r.visible_to,isLeave:r.is_leave,color:r.color,active:r.active,sortOrder:r.sort_order,balanceTypeId:r.balance_type_id}]);
       setActModal(null);setActForm(BNA);
     }catch(err){toast('Failed: '+err.message);}
   }
   async function saveActivity(){
     if(!actForm.name.trim()){toast("Name required.");return;}
     try{
-      const r=await activitiesAPI.update(actModal.id,{name:actForm.name,visibleTo:actForm.visibleTo,isLeave:actForm.isLeave,color:actForm.color,active:actForm.active,sortOrder:actForm.sortOrder});
-      setActivities(p=>p.map(a=>a.id===actModal.id?{id:r.id,name:r.name,visibleTo:r.visible_to,isLeave:r.is_leave,color:r.color,active:r.active,sortOrder:r.sort_order}:a));
+      const r=await activitiesAPI.update(actModal.id,{name:actForm.name,visibleTo:actForm.visibleTo,isLeave:actForm.isLeave,color:actForm.color,active:actForm.active,sortOrder:actForm.sortOrder,balanceTypeId:actForm.balanceTypeId||null});
+      setActivities(p=>p.map(a=>a.id===actModal.id?{id:r.id,name:r.name,visibleTo:r.visible_to,isLeave:r.is_leave,color:r.color,active:r.active,sortOrder:r.sort_order,balanceTypeId:r.balance_type_id}:a));
       setActModal(null);
     }catch(err){toast('Failed: '+err.message);}
   }
@@ -4635,7 +4806,7 @@ function Settings({user,users,setUsers,projects,setProjects,roles,setRoles,activ
   const CP=({value,onChange})=>(<div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:4}}>{COLORS.map(c=><div key={c} className={`color-sw${value===c?" sel":""}`} style={{background:c}} onClick={()=>onChange(c)}/>)}</div>);
   return (
     <div>
-      <div className="tabs">{[["users","👥 Users & Roles"],["projects","📁 Projects"],["entities","🏢 Entities"],["activities","🎯 Activities"],["holidays","📅 Holidays"],["workflows","🔄 Workflows"],["rbac","🔐 Permissions & Roles"],["system","⚙️ System"]].map(([k,l])=>(<div key={k} className={`tab ${tab===k?"active":""}`} onClick={()=>setTab(k)}>{l}</div>))}</div>
+      <div className="tabs">{[["users","👥 Users & Roles"],["departments","🏛️ Departments"],["projects","📁 Projects"],["entities","🏢 Entities"],["activities","🎯 Activities"],["balanceTypes","💰 Balance Types"],["holidays","📅 Holidays"],["workflows","🔄 Workflows"],["rbac","🔐 Permissions & Roles"],["system","⚙️ System"]].map(([k,l])=>(<div key={k} className={`tab ${tab===k?"active":""}`} onClick={()=>setTab(k)}>{l}</div>))}</div>
       {tab==="users"&&(<div><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}><div><div style={{fontWeight:700,fontSize:15}}>User Management</div><div style={{fontSize:12,color:"var(--t3)"}}>{users.filter(u=>u.active).length} active</div></div><div style={{display:"flex",gap:8}}><button className="btn bg2 bsm" onClick={()=>downloadTemplate('users')}>⬇ Template</button><label className="btn bg2 bsm" style={{cursor:"pointer",margin:0}}><input type="file" accept=".csv,.xlsx" style={{display:"none"}} onChange={e=>{handleImportFile(e,'users');e.target.value='';}} />📥 Import CSV</label><button className="btn bp bsm" onClick={()=>setShowAdd(true)}>+ Add User</button></div></div>
         <div className="tw"><table className="tbl"><thead><tr><th>User</th><th>Role</th><th>Type</th><th>Dept</th><th>Manager</th><th>Balances</th><th>Active</th><th>2FA</th><th>Actions</th></tr></thead><tbody>{users.map(u=>(<tr key={u.id}><td><div style={{display:"flex",alignItems:"center",gap:9}}><div className="av" style={{background:aColor(u.id)}}>{initials(u.name)}</div><div><div style={{fontWeight:700,fontSize:13}}>{u.name}</div><div style={{fontSize:11,color:"var(--t3)",fontFamily:"'JetBrains Mono',monospace"}}>{u.email}</div></div></div></td><td><select className="isel2" value={u.role} onChange={e=>setUsers(p=>p.map(x=>x.id===u.id?{...x,role:e.target.value}:x))}>{Object.entries(roles).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select></td><td><TypeBadge type={u.type}/></td><td style={{fontSize:12,color:"var(--t2)"}}>{u.dept}</td><td style={{fontSize:12,color:"var(--t3)"}}>{users.find(x=>x.id===u.manager)?.name||"—"}</td><td><div style={{display:"flex",flexDirection:"column",gap:3}}><div style={{display:"flex",alignItems:"center",gap:6}}><div className="prog" style={{width:48}}><div className="prog-f" style={{width:`${Math.round((u.usedLeave/u.leaveBalance)*100)}%`,background:u.usedLeave/u.leaveBalance>0.8?"var(--re)":"var(--gr)"}}/></div><span style={{fontSize:11,fontFamily:"'JetBrains Mono',monospace",color:"var(--t3)"}} title="Annual Leave remaining">{u.leaveBalance-u.usedLeave}d AL</span></div>{(u.recoveryBalance||0)>0&&<span style={{fontSize:10,color:"var(--v)",fontFamily:"'JetBrains Mono',monospace"}}>🔄 {u.recoveryBalance}d</span>}</div></td><td><label className="sw"><input type="checkbox" checked={u.active} onChange={()=>toggleU(u.id)}/><span className="sldr"/></label></td><td>{u.totpEnabled?<span className="badge bgr" style={{fontSize:10}}>🔒 On</span>:<span className="badge bgr2" style={{fontSize:10}}>Off</span>}</td><td><div style={{display:"flex",gap:4}}><button className="btn bg2 bxs" onClick={()=>setEditUser({...u})}>✏️</button>{onResetPwd&&<button className="btn bg2 bxs" title="Reset password" onClick={()=>onResetPwd(u.id)}>🔑</button>}{u.totpEnabled&&<button className="btn bg2 bxs" title="Reset 2FA" onClick={()=>resetMFA(u.id)}>🔓</button>}<button className="btn bg2 bxs" onClick={()=>delUser(u.id)}>🗑</button></div></td></tr>))}</tbody></table></div>
       </div>)}
@@ -4644,6 +4815,8 @@ function Settings({user,users,setUsers,projects,setProjects,roles,setRoles,activ
         <div className="shd">Open Projects</div><div className="g3">{projects.filter(p=>p.open).map(p=>(<div className="pc" key={p.id}><div className="pdot" style={{background:p.color}}/><div style={{flex:1}}><div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:700,color:"var(--t3)"}}>{p.code}</div><div style={{fontSize:13,fontWeight:600}}>{p.name}</div><div style={{fontSize:11,color:"var(--t3)",marginTop:2}}>{p.dept}{p.fieldAllowed&&<span className="badge bsk" style={{fontSize:9,marginLeft:5}}>Field</span>}{p.officeAllowed&&<span className="badge bv" style={{fontSize:9,marginLeft:4}}>Office</span>}</div></div></div>))}</div>
       </div>)}
       {tab==="entities"&&<EntitiesTab entities={entities} setEntities={setEntities}/>}
+      {tab==="departments"&&<DepartmentsTab departments={departments} setDepartments={setDepartments}/>}
+      {tab==="balanceTypes"&&<BalanceTypesTab balanceTypes={balanceTypes} setBalanceTypes={setBalanceTypes}/>}
       {tab==="activities"&&(<div>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
           <div><div style={{fontWeight:700,fontSize:15}}>Activity Management</div><div style={{fontSize:12,color:"var(--t3)"}}>{activities.filter(a=>a.active).length} active · {activities.filter(a=>!a.active).length} hidden</div></div>
@@ -4681,9 +4854,31 @@ function Settings({user,users,setUsers,projects,setProjects,roles,setRoles,activ
                 <div className="fgrp"><label className="flbl">Counts as Leave</label>
                   <div style={{display:"flex",alignItems:"center",gap:10,marginTop:6}}>
                     <label className="sw"><input type="checkbox" checked={actForm.isLeave} onChange={e=>setActForm(f=>({...f,isLeave:e.target.checked}))}/><span className="sldr"/></label>
-                    <span style={{fontSize:13,color:"var(--t2)"}}>{actForm.isLeave?"Yes — deducts from leave balance":"No"}</span>
+                    <span style={{fontSize:13,color:"var(--t2)"}}>{actForm.isLeave?"Yes — deducts from selected balance":"No"}</span>
                   </div>
                 </div>
+                {actForm.isLeave&&(
+                  <div className="fgrp"><label className="flbl">Balance Type</label>
+                    <select className="fsel" value={actForm.balanceTypeId||""} onChange={e=>{
+                      if(e.target.value==="__new__"){
+                        const name=window.prompt("New balance type name (e.g. Sick Leave):");if(!name)return;
+                        const code=name.toLowerCase().replace(/\s+/g,"_");
+                        const defaultBalance=Number(window.prompt("Default days for new users:","0"))||0;
+                        balanceTypesAPI.create({name,code,defaultBalance,color:"#10b981"}).then(created=>{
+                          setBalanceTypes(p=>[...p,created]);
+                          setActForm(f=>({...f,balanceTypeId:created.id}));
+                        }).catch(err=>toast('Failed: '+err.message));
+                      }else{
+                        setActForm(f=>({...f,balanceTypeId:e.target.value?Number(e.target.value):null}));
+                      }
+                    }}>
+                      <option value="">— None —</option>
+                      {balanceTypes.filter(b=>b.active!==false).map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
+                      <option value="__new__">+ Add new balance type…</option>
+                    </select>
+                    <div style={{fontSize:11,color:"var(--t3)",marginTop:3}}>Choose which balance gets deducted when this activity is approved.</div>
+                  </div>
+                )}
                 {actModal!=="add"&&(<div className="fgrp"><label className="flbl">Active</label>
                   <div style={{display:"flex",alignItems:"center",gap:10,marginTop:6}}>
                     <label className="sw"><input type="checkbox" checked={actForm.active} onChange={e=>setActForm(f=>({...f,active:e.target.checked}))}/><span className="sldr"/></label>
@@ -4969,10 +5164,10 @@ function Settings({user,users,setUsers,projects,setProjects,roles,setRoles,activ
         </div></div>
       </div>)}
       {/* Modals */}
-      {editUser&&(<div className="mo" onClick={e=>e.target.className==="mo"&&setEditUser(null)}><div className="md"><div className="md-title">Edit User</div><div className="fg"><div className="fgrp"><label className="flbl">Full Name</label><input className="fi" value={editUser.name} onChange={e=>setEditUser(u=>({...u,name:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Email</label><input className="fi" value={editUser.email} onChange={e=>setEditUser(u=>({...u,email:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Role</label><select className="fsel" value={editUser.role} onChange={e=>setEditUser(u=>({...u,role:e.target.value}))}>{Object.entries(roles).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select></div><div className="fgrp"><label className="flbl">Staff Type</label><select className="fsel" value={editUser.type} onChange={e=>setEditUser(u=>({...u,type:e.target.value}))}><option value="field">Field</option><option value="office">Office</option></select></div><div className="fgrp"><label className="flbl">Department</label><input className="fi" value={editUser.dept} onChange={e=>setEditUser(u=>({...u,dept:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Line Manager</label><select className="fsel" value={editUser.manager||""} onChange={e=>setEditUser(u=>({...u,manager:Number(e.target.value)||null}))}><option value="">None</option>{mgrs.filter(m=>m.id!==editUser.id&&m.role!=="superadmin").map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></div><div className="fgrp"><label className="flbl">Annual Leave Balance</label><input type="number" step="0.5" className="fi" value={editUser.leaveBalance} onChange={e=>setEditUser(u=>({...u,leaveBalance:Number(e.target.value)}))}/></div><div className="fgrp"><label className="flbl">Used Leave</label><input type="number" step="0.5" className="fi" value={editUser.usedLeave} onChange={e=>setEditUser(u=>({...u,usedLeave:Number(e.target.value)}))}/></div><div className="fgrp"><label className="flbl">Recovery Balance 🔄</label><input type="number" step="0.5" className="fi" value={editUser.recoveryBalance||0} onChange={e=>setEditUser(u=>({...u,recoveryBalance:Number(e.target.value)}))}/></div><div className="fgrp"><label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",userSelect:"none"}}><input type="checkbox" checked={!!editUser.allowOverlap} onChange={e=>setEditUser(u=>({...u,allowOverlap:e.target.checked}))} style={{accentColor:"var(--v)",width:15,height:15,flexShrink:0}}/><span className="flbl" style={{margin:0}}>Allow overlapping requests</span></label><div style={{fontSize:11,color:"var(--t3)",marginTop:3,paddingLeft:23}}>This user can submit leave that overlaps with teammates' approved or pending requests.</div></div></div><div className="md-footer"><button className="btn bo" onClick={()=>setEditUser(null)}>Cancel</button><button className="btn bp" onClick={saveUser}>Save</button></div></div></div>)}
-      {showAdd&&(<div className="mo" onClick={e=>e.target.className==="mo"&&setShowAdd(false)}><div className="md"><div className="md-title">Add New User</div><div className="fg"><div className="fgrp"><label className="flbl">Full Name</label><input className="fi" placeholder="First Last" value={newUser.name} onChange={e=>setNewUser(u=>({...u,name:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Email</label><input className="fi" placeholder="name@mazarine.tn" value={newUser.email} onChange={e=>setNewUser(u=>({...u,email:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Role</label><select className="fsel" value={newUser.role} onChange={e=>setNewUser(u=>({...u,role:e.target.value}))}>{Object.entries(roles).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select></div><div className="fgrp"><label className="flbl">Staff Type</label><select className="fsel" value={newUser.type} onChange={e=>setNewUser(u=>({...u,type:e.target.value}))}><option value="field">Field</option><option value="office">Office</option></select></div><div className="fgrp"><label className="flbl">Department</label><input className="fi" placeholder="e.g. Operations" value={newUser.dept} onChange={e=>setNewUser(u=>({...u,dept:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Line Manager</label><select className="fsel" value={newUser.manager||""} onChange={e=>setNewUser(u=>({...u,manager:Number(e.target.value)||null}))}><option value="">None</option>{mgrs.filter(m=>m.role!=="superadmin").map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></div><div className="fgrp"><label className="flbl">Leave Days</label><input type="number" className="fi" value={newUser.leaveBalance} onChange={e=>setNewUser(u=>({...u,leaveBalance:Number(e.target.value)}))}/></div></div><div className="md-footer"><button className="btn bo" onClick={()=>setShowAdd(false)}>Cancel</button><button className="btn bp" onClick={addUser}>Add</button></div></div></div>)}
-      {editProj&&(<div className="mo" onClick={e=>e.target.className==="mo"&&setEditProj(null)}><div className="md"><div className="md-title">Edit Project</div><div className="fg"><div className="fgrp"><label className="flbl">Code</label><input className="fi" value={editProj.code} onChange={e=>setEditProj(p=>({...p,code:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Entity</label><select className="fsel" value={editProj.entityId||""} onChange={e=>setEditProj(p=>({...p,entityId:e.target.value?Number(e.target.value):null}))}><option value="">— none —</option>{entities.map(e=><option key={e.id} value={e.id}>{e.code} — {e.name}</option>)}</select></div><div className="fgrp ff"><label className="flbl">Name</label><input className="fi" value={editProj.name} onChange={e=>setEditProj(p=>({...p,name:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Department</label><input className="fi" value={editProj.dept} onChange={e=>setEditProj(p=>({...p,dept:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Color</label><CP value={editProj.color} onChange={c=>setEditProj(p=>({...p,color:c}))}/></div><div className="fgrp"><label className="flbl">Allowed For</label><div style={{display:"flex",gap:14,marginTop:6}}><label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={editProj.fieldAllowed} onChange={e=>setEditProj(p=>({...p,fieldAllowed:e.target.checked}))}/>Field</label><label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={editProj.officeAllowed} onChange={e=>setEditProj(p=>({...p,officeAllowed:e.target.checked}))}/>Office</label></div></div><div className="fgrp ff"><label className="flbl">Status</label><div style={{display:"flex",alignItems:"center",gap:10,marginTop:6}}><label className="sw"><input type="checkbox" checked={editProj.open} onChange={e=>setEditProj(p=>({...p,open:e.target.checked}))}/><span className="sldr"/></label><span style={{fontSize:13}}>{editProj.open?"Open":"Closed"}</span></div></div><div style={{display:"flex",flexDirection:"column",gap:4}}><label style={{fontSize:12,color:"var(--t3)"}}>Expiry Date</label><input type="date" className="fi" value={editProj.expiryDate||""} onChange={e=>setEditProj({...editProj,expiryDate:e.target.value||null})}/></div></div><div className="md-footer"><button className="btn bo" onClick={()=>setEditProj(null)}>Cancel</button><button className="btn bp" onClick={saveProj}>Save</button></div></div></div>)}
-      {showAddProj&&(<div className="mo" onClick={e=>e.target.className==="mo"&&setShowAddProj(false)}><div className="md"><div className="md-title">Add New Project</div><div className="fg"><div className="fgrp"><label className="flbl">Code</label><input className="fi" placeholder="e.g. PROJ-001" value={newProj.code} onChange={e=>setNewProj(p=>({...p,code:e.target.value.toUpperCase()}))}/></div><div className="fgrp"><label className="flbl">Entity</label><select className="fsel" value={newProj.entityId||""} onChange={e=>setNewProj(p=>({...p,entityId:e.target.value?Number(e.target.value):null}))}><option value="">— none —</option>{entities.map(e=><option key={e.id} value={e.id}>{e.code} — {e.name}</option>)}</select></div><div className="fgrp ff"><label className="flbl">Name</label><input className="fi" placeholder="Full project name" value={newProj.name} onChange={e=>setNewProj(p=>({...p,name:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Department</label><input className="fi" placeholder="e.g. Operations" value={newProj.dept} onChange={e=>setNewProj(p=>({...p,dept:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Color</label><CP value={newProj.color} onChange={c=>setNewProj(p=>({...p,color:c}))}/></div><div className="fgrp"><label className="flbl">Allowed For</label><div style={{display:"flex",gap:14,marginTop:6}}><label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={newProj.fieldAllowed} onChange={e=>setNewProj(p=>({...p,fieldAllowed:e.target.checked}))}/>Field</label><label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={newProj.officeAllowed} onChange={e=>setNewProj(p=>({...p,officeAllowed:e.target.checked}))}/>Office</label></div></div><div style={{display:"flex",flexDirection:"column",gap:4}}><label style={{fontSize:12,color:"var(--t3)"}}>Expiry Date</label><input type="date" className="fi" value={newProj.expiryDate||""} onChange={e=>setNewProj({...newProj,expiryDate:e.target.value||null})}/></div></div><div className="md-footer"><button className="btn bo" onClick={()=>setShowAddProj(false)}>Cancel</button><button className="btn bp" onClick={addProj}>Add</button></div></div></div>)}
+      {editUser&&(<div className="mo" onClick={e=>e.target.className==="mo"&&setEditUser(null)}><div className="md"><div className="md-title">Edit User</div><div className="fg"><div className="fgrp"><label className="flbl">Full Name</label><input className="fi" value={editUser.name} onChange={e=>setEditUser(u=>({...u,name:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Email</label><input className="fi" value={editUser.email} onChange={e=>setEditUser(u=>({...u,email:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Role</label><select className="fsel" value={editUser.role} onChange={e=>setEditUser(u=>({...u,role:e.target.value}))}>{Object.entries(roles).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select></div><div className="fgrp"><label className="flbl">Staff Type</label><select className="fsel" value={editUser.type} onChange={e=>setEditUser(u=>({...u,type:e.target.value}))}><option value="field">Field</option><option value="office">Office</option></select></div><div className="fgrp"><label className="flbl">Department</label><select className="fsel" value={editUser.dept||""} onChange={e=>setEditUser(u=>({...u,dept:e.target.value}))}><option value="">— None —</option>{departments.filter(d=>d.active!==false).map(d=><option key={d.id} value={d.name}>{d.name}</option>)}</select></div><div className="fgrp"><label className="flbl">Line Manager</label><select className="fsel" value={editUser.manager||""} onChange={e=>setEditUser(u=>({...u,manager:Number(e.target.value)||null}))}><option value="">None</option>{mgrs.filter(m=>m.id!==editUser.id&&m.role!=="superadmin").map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></div><div className="fgrp"><label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",userSelect:"none"}}><input type="checkbox" checked={!!editUser.allowOverlap} onChange={e=>setEditUser(u=>({...u,allowOverlap:e.target.checked}))} style={{accentColor:"var(--v)",width:15,height:15,flexShrink:0}}/><span className="flbl" style={{margin:0}}>Allow overlapping requests</span></label><div style={{fontSize:11,color:"var(--t3)",marginTop:3,paddingLeft:23}}>This user can submit leave that overlaps with teammates' approved or pending requests.</div></div></div><div className="md-footer"><button className="btn bo" onClick={()=>setEditUser(null)}>Cancel</button><button className="btn bp" onClick={saveUser}>Save</button></div></div></div>)}
+      {showAdd&&(<div className="mo" onClick={e=>e.target.className==="mo"&&setShowAdd(false)}><div className="md"><div className="md-title">Add New User</div><div className="fg"><div className="fgrp"><label className="flbl">Full Name</label><input className="fi" placeholder="First Last" value={newUser.name} onChange={e=>setNewUser(u=>({...u,name:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Email</label><input className="fi" placeholder="name@mazarine.tn" value={newUser.email} onChange={e=>setNewUser(u=>({...u,email:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Role</label><select className="fsel" value={newUser.role} onChange={e=>setNewUser(u=>({...u,role:e.target.value}))}>{Object.entries(roles).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select></div><div className="fgrp"><label className="flbl">Staff Type</label><select className="fsel" value={newUser.type} onChange={e=>setNewUser(u=>({...u,type:e.target.value}))}><option value="field">Field</option><option value="office">Office</option></select></div><div className="fgrp"><label className="flbl">Department</label><select className="fsel" value={newUser.dept||""} onChange={e=>setNewUser(u=>({...u,dept:e.target.value}))}><option value="">— None —</option>{departments.filter(d=>d.active!==false).map(d=><option key={d.id} value={d.name}>{d.name}</option>)}</select></div><div className="fgrp"><label className="flbl">Line Manager</label><select className="fsel" value={newUser.manager||""} onChange={e=>setNewUser(u=>({...u,manager:Number(e.target.value)||null}))}><option value="">None</option>{mgrs.filter(m=>m.role!=="superadmin").map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></div></div><div className="md-footer"><button className="btn bo" onClick={()=>setShowAdd(false)}>Cancel</button><button className="btn bp" onClick={addUser}>Add</button></div></div></div>)}
+      {editProj&&(<div className="mo" onClick={e=>e.target.className==="mo"&&setEditProj(null)}><div className="md"><div className="md-title">Edit Project</div><div className="fg"><div className="fgrp"><label className="flbl">Code</label><input className="fi" value={editProj.code} onChange={e=>setEditProj(p=>({...p,code:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Entity</label><select className="fsel" value={editProj.entityId||""} onChange={e=>setEditProj(p=>({...p,entityId:e.target.value?Number(e.target.value):null}))}><option value="">— none —</option>{entities.map(e=><option key={e.id} value={e.id}>{e.code} — {e.name}</option>)}</select></div><div className="fgrp ff"><label className="flbl">Name</label><input className="fi" value={editProj.name} onChange={e=>setEditProj(p=>({...p,name:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Department</label><select className="fsel" value={editProj.dept||""} onChange={e=>setEditProj(p=>({...p,dept:e.target.value}))}><option value="">— None —</option>{departments.filter(d=>d.active!==false).map(d=><option key={d.id} value={d.name}>{d.name}</option>)}</select></div><div className="fgrp"><label className="flbl">Color</label><CP value={editProj.color} onChange={c=>setEditProj(p=>({...p,color:c}))}/></div><div className="fgrp"><label className="flbl">Allowed For</label><div style={{display:"flex",gap:14,marginTop:6}}><label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={editProj.fieldAllowed} onChange={e=>setEditProj(p=>({...p,fieldAllowed:e.target.checked}))}/>Field</label><label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={editProj.officeAllowed} onChange={e=>setEditProj(p=>({...p,officeAllowed:e.target.checked}))}/>Office</label></div></div><div className="fgrp ff"><label className="flbl">Status</label><div style={{display:"flex",alignItems:"center",gap:10,marginTop:6}}><label className="sw"><input type="checkbox" checked={editProj.open} onChange={e=>setEditProj(p=>({...p,open:e.target.checked}))}/><span className="sldr"/></label><span style={{fontSize:13}}>{editProj.open?"Open":"Closed"}</span></div></div><div style={{display:"flex",flexDirection:"column",gap:4}}><label style={{fontSize:12,color:"var(--t3)"}}>Expiry Date</label><input type="date" className="fi" value={editProj.expiryDate||""} onChange={e=>setEditProj({...editProj,expiryDate:e.target.value||null})}/></div></div><div className="md-footer"><button className="btn bo" onClick={()=>setEditProj(null)}>Cancel</button><button className="btn bp" onClick={saveProj}>Save</button></div></div></div>)}
+      {showAddProj&&(<div className="mo" onClick={e=>e.target.className==="mo"&&setShowAddProj(false)}><div className="md"><div className="md-title">Add New Project</div><div className="fg"><div className="fgrp"><label className="flbl">Code</label><input className="fi" placeholder="e.g. PROJ-001" value={newProj.code} onChange={e=>setNewProj(p=>({...p,code:e.target.value.toUpperCase()}))}/></div><div className="fgrp"><label className="flbl">Entity</label><select className="fsel" value={newProj.entityId||""} onChange={e=>setNewProj(p=>({...p,entityId:e.target.value?Number(e.target.value):null}))}><option value="">— none —</option>{entities.map(e=><option key={e.id} value={e.id}>{e.code} — {e.name}</option>)}</select></div><div className="fgrp ff"><label className="flbl">Name</label><input className="fi" placeholder="Full project name" value={newProj.name} onChange={e=>setNewProj(p=>({...p,name:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Department</label><select className="fsel" value={newProj.dept||""} onChange={e=>setNewProj(p=>({...p,dept:e.target.value}))}><option value="">— None —</option>{departments.filter(d=>d.active!==false).map(d=><option key={d.id} value={d.name}>{d.name}</option>)}</select></div><div className="fgrp"><label className="flbl">Color</label><CP value={newProj.color} onChange={c=>setNewProj(p=>({...p,color:c}))}/></div><div className="fgrp"><label className="flbl">Allowed For</label><div style={{display:"flex",gap:14,marginTop:6}}><label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={newProj.fieldAllowed} onChange={e=>setNewProj(p=>({...p,fieldAllowed:e.target.checked}))}/>Field</label><label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={newProj.officeAllowed} onChange={e=>setNewProj(p=>({...p,officeAllowed:e.target.checked}))}/>Office</label></div></div><div style={{display:"flex",flexDirection:"column",gap:4}}><label style={{fontSize:12,color:"var(--t3)"}}>Expiry Date</label><input type="date" className="fi" value={newProj.expiryDate||""} onChange={e=>setNewProj({...newProj,expiryDate:e.target.value||null})}/></div></div><div className="md-footer"><button className="btn bo" onClick={()=>setShowAddProj(false)}>Cancel</button><button className="btn bp" onClick={addProj}>Add</button></div></div></div>)}
       {showAddRole&&(<div className="mo" onClick={e=>e.target.className==="mo"&&setShowAddRole(false)}><div className="md"><div className="md-title">Create New Role</div><div className="fg"><div className="fgrp"><label className="flbl">Role Key</label><input className="fi" placeholder="e.g. supervisor" value={newRole.key} onChange={e=>setNewRole(r=>({...r,key:e.target.value.toLowerCase().replace(/\s+/g,"_")}))}/></div><div className="fgrp"><label className="flbl">Display Label</label><input className="fi" placeholder="e.g. Supervisor" value={newRole.label} onChange={e=>setNewRole(r=>({...r,label:e.target.value}))}/></div><div className="fgrp ff"><label className="flbl">Badge Color</label><CP value={newRole.color} onChange={c=>setNewRole(r=>({...r,color:c}))}/></div><div className="fgrp ff"><label className="flbl">Permissions</label><div className="pgrid" style={{marginTop:6}}>{PERMISSIONS_LIST.map(p=>(<div className="pi" key={p.key}><div><div style={{fontSize:12,fontWeight:600,color:"var(--t)"}}>{p.label}</div><div className="pkey">{p.key}</div></div><label className="sw"><input type="checkbox" checked={newRole.permissions.includes(p.key)} onChange={()=>setNewRole(r=>({...r,permissions:togglePerm(r.permissions,p.key)}))}/><span className="sldr"/></label></div>))}</div></div></div><div style={{marginTop:10,padding:"9px 13px",background:"var(--s2)",borderRadius:"var(--rs)",fontSize:12}}>Preview: <RoleBadge role={newRole.key||"_"} roles={{[newRole.key||"_"]:{label:newRole.label||"New Role",color:newRole.color,bg:colorBg(newRole.color)}}}/></div><div className="md-footer"><button className="btn bo" onClick={()=>setShowAddRole(false)}>Cancel</button><button className="btn bp" onClick={addRole}>Create Role</button></div></div></div>)}
       {editRole&&(<div className="mo" onClick={e=>e.target.className==="mo"&&setEditRole(null)}><div className="md"><div className="md-title">Edit Role — <span style={{color:editRole.color}}>{editRole.label}</span></div>{editRole.system&&<div style={{padding:"8px 12px",background:"var(--aml)",borderRadius:"var(--rs)",fontSize:12,color:"var(--am)",marginBottom:14}}>⚠ System role: key is fixed, but label, color, and permissions can be changed.</div>}<div className="fg"><div className="fgrp"><label className="flbl">Display Label</label><input className="fi" value={editRole.label} onChange={e=>setEditRole(r=>({...r,label:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Role Key (locked)</label><input className="fi" value={editRole.key} disabled style={{opacity:.5}}/></div><div className="fgrp ff"><label className="flbl">Badge Color</label><CP value={editRole.color} onChange={c=>setEditRole(r=>({...r,color:c}))}/></div><div className="fgrp ff"><label className="flbl">Permissions</label><div className="pgrid" style={{marginTop:6}}>{PERMISSIONS_LIST.map(p=>{const isAll=editRole.permissions.includes("all");const on=isAll||editRole.permissions.includes(p.key);return(<div className="pi" key={p.key} style={{opacity:isAll&&p.key!=="all"?.55:1}}><div><div style={{fontSize:12,fontWeight:600,color:"var(--t)"}}>{p.label}</div><div className="pkey">{p.key}</div></div><label className="sw"><input type="checkbox" checked={on} disabled={isAll&&p.key!=="all"} onChange={()=>setEditRole(r=>({...r,permissions:togglePerm(r.permissions,p.key)}))}/><span className="sldr"/></label></div>);})}</div></div></div><div style={{marginTop:10,padding:"9px 13px",background:"var(--s2)",borderRadius:"var(--rs)",fontSize:12}}>Preview: <RoleBadge role={editRole.key} roles={{[editRole.key]:{label:editRole.label,color:editRole.color,bg:colorBg(editRole.color)}}}/></div><div className="md-footer"><button className="btn bo" onClick={()=>setEditRole(null)}>Cancel</button><button className="btn bp" onClick={saveRole}>Save Role</button></div></div></div>)}
       {importModal&&(
@@ -6035,6 +6230,9 @@ export default function App() {
   const [activities,    setActivities]    = useState([]);
   const [holidays,      setHolidays]      = useState([]);
   const [entities,      setEntities]      = useState([]);
+  const [departments,   setDepartments]   = useState([]);
+  const [balanceTypes,  setBalanceTypes]  = useState([]);
+  const [userBalances,  setUserBalances]  = useState([]);
   const [rotationPlans, setRotationPlans] = useState([]);
   const [workflows,     setWorkflows]     = useState([]);
   const [companySetting,setCompanySetting]= useState({companyName:"MAZARINE",companySubtitle:"Energy Tunisia",logoBase64:null});
@@ -6097,7 +6295,7 @@ export default function App() {
     const loadData = async () => {
       setLoading(true);
       try {
-        const [usersData, projectsData, requestsData, rolesData, activitiesData, rotationsData, holidaysData, entitiesData, workflowsData] = await Promise.all([
+        const [usersData, projectsData, requestsData, rolesData, activitiesData, rotationsData, holidaysData, entitiesData, workflowsData, deptsData, balanceTypesData, userBalancesData] = await Promise.all([
           usersAPI.getAll(),
           projectsAPI.getAll(),
           requestsAPI.getAll(),
@@ -6106,8 +6304,14 @@ export default function App() {
           rotationAPI.getAll(),
           holidaysAPI.getAll(),
           companyEntitiesAPI.getAll(),
-          workflowsAPI.getAll().catch(() => [])
+          workflowsAPI.getAll().catch(() => []),
+          departmentsAPI.getAll().catch(() => []),
+          balanceTypesAPI.getAll().catch(() => []),
+          userBalancesAPI.getAll().catch(() => [])
         ]);
+        setDepartments(deptsData);
+        setBalanceTypes(balanceTypesData);
+        setUserBalances(userBalancesData);
         
         setUsers(usersData.map(u => ({
           id: u.id,
@@ -6184,7 +6388,8 @@ export default function App() {
 
         setActivities(activitiesData.map(a=>({
           id:a.id, name:a.name, visibleTo:a.visible_to,
-          isLeave:a.is_leave, color:a.color, active:a.active, sortOrder:a.sort_order
+          isLeave:a.is_leave, color:a.color, active:a.active, sortOrder:a.sort_order,
+          balanceTypeId:a.balance_type_id
         })));
 
         setRotationPlans(rotationsData.map(r=>({
@@ -6567,10 +6772,10 @@ export default function App() {
                 {view==="org-chart"  && <OrgChartView user={user} users={users} roles={roles}/>}
                 {view==="analytics"  && (hasAna||hasHR) && <AnalyticsReports user={user} requests={requests} users={users} projects={projects} roles={roles} tsStatuses={tsStatuses} activities={activities}/>}
                 {view==="approvals"  && canApp && <ApprovalsView user={user} requests={requests} setRequests={setRequests} users={users} setUsers={setUsers} roles={roles} tsStatuses={tsStatuses} setTsStatuses={setTsStatuses} timesheetData={timesheetData} setTimesheetData={setTimesheetData} projects={projects} activities={activities} rotations={rotationPlans}/>}
-                {view==="balances"   && (isAd||hasHR) && <LeaveBalancesView users={users} setUsers={setUsers} roles={roles} user={user}/>}
+                {view==="balances"   && (isAd||hasHR) && <LeaveBalancesView users={users} setUsers={setUsers} roles={roles} user={user} balanceTypes={balanceTypes} userBalances={userBalances} setUserBalances={setUserBalances}/>}
                 {view==="hr-report"  && hasHR  && <HRReport requests={requests} users={users} tsStatuses={tsStatuses} activities={activities}/>}
                 {view==="audit"      && (isAd||hasHR) && <AuditTrailView users={users}/>}
-                {view==="settings"   && isAd   && <Settings user={user} users={users} setUsers={setUsers} projects={projects} setProjects={setProjects} roles={roles} setRoles={setRoles} onResetPwd={adminResetPwd} activities={activities} setActivities={setActivities} holidays={holidays} setHolidays={setHolidays} entities={entities} setEntities={setEntities} workflows={workflows} setWorkflows={setWorkflows}/>}
+                {view==="settings"   && isAd   && <Settings user={user} users={users} setUsers={setUsers} projects={projects} setProjects={setProjects} roles={roles} setRoles={setRoles} onResetPwd={adminResetPwd} activities={activities} setActivities={setActivities} holidays={holidays} setHolidays={setHolidays} entities={entities} setEntities={setEntities} workflows={workflows} setWorkflows={setWorkflows} departments={departments} setDepartments={setDepartments} balanceTypes={balanceTypes} setBalanceTypes={setBalanceTypes}/>}
               </>
             )}
           </div>

@@ -348,3 +348,22 @@ export const erpNotificationsAPI = {
   getAll: () => fetchWithAuth('/erp/notifications'),
   send:   (data) => fetchWithAuth('/send-notification', { method: 'POST', body: JSON.stringify(data) }),
 };
+
+export const departmentsAPI = {
+  getAll: () => fetchWithAuth('/departments'),
+  create: (data) => fetchWithAuth('/departments', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id, data) => fetchWithAuth(`/departments/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (id) => fetchWithAuth(`/departments/${id}`, { method: 'DELETE' }),
+};
+
+export const balanceTypesAPI = {
+  getAll: () => fetchWithAuth('/balance-types'),
+  create: (data) => fetchWithAuth('/balance-types', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id, data) => fetchWithAuth(`/balance-types/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (id) => fetchWithAuth(`/balance-types/${id}`, { method: 'DELETE' }),
+};
+
+export const userBalancesAPI = {
+  getAll: () => fetchWithAuth('/user-balances'),
+  update: (data) => fetchWithAuth('/user-balances', { method: 'PUT', body: JSON.stringify(data) }),
+};

@@ -1955,11 +1955,11 @@ app.get('/api/activities', authenticateToken, async (req, res) => {
 
 app.post('/api/activities', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { name, visibleTo, isLeave, color, sortOrder } = req.body;
+    const { name, visibleTo, isLeave, color, sortOrder, balanceTypeId } = req.body;
     const result = await pool.query(
-      `INSERT INTO activities (name, visible_to, is_leave, color, sort_order)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [name.trim(), visibleTo || 'both', isLeave || false, color || '#7c3aed', sortOrder || 0]
+      `INSERT INTO activities (name, visible_to, is_leave, color, sort_order, balance_type_id)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [name.trim(), visibleTo || 'both', isLeave || false, color || '#7c3aed', sortOrder || 0, balanceTypeId || null]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -1971,11 +1971,11 @@ app.post('/api/activities', authenticateToken, requireAdmin, async (req, res) =>
 
 app.put('/api/activities/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { name, visibleTo, isLeave, color, active, sortOrder } = req.body;
+    const { name, visibleTo, isLeave, color, active, sortOrder, balanceTypeId } = req.body;
     const result = await pool.query(
-      `UPDATE activities SET name=$1, visible_to=$2, is_leave=$3, color=$4, active=$5, sort_order=$6
-       WHERE id=$7 RETURNING *`,
-      [name.trim(), visibleTo, isLeave, color, active, sortOrder ?? 0, req.params.id]
+      `UPDATE activities SET name=$1, visible_to=$2, is_leave=$3, color=$4, active=$5, sort_order=$6, balance_type_id=$7
+       WHERE id=$8 RETURNING *`,
+      [name.trim(), visibleTo, isLeave, color, active, sortOrder ?? 0, balanceTypeId || null, req.params.id]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Activity not found' });
     res.json(result.rows[0]);
@@ -1984,6 +1984,131 @@ app.put('/api/activities/:id', authenticateToken, requireAdmin, async (req, res)
     console.error('Update activity error:', err);
     res.status(500).json({ error: 'Server error' });
   }
+});
+
+// ===== DEPARTMENTS =====
+app.get('/api/departments', authenticateToken, async (req, res) => {
+  try {
+    const r = await pool.query('SELECT * FROM departments ORDER BY sort_order, name');
+    res.json(r.rows);
+  } catch (err) { console.error('Get departments error:', err); res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/departments', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { name, sortOrder } = req.body;
+    if (!name?.trim()) return res.status(400).json({ error: 'Name is required' });
+    const r = await pool.query('INSERT INTO departments (name, sort_order) VALUES ($1,$2) RETURNING *', [name.trim(), sortOrder || 0]);
+    res.status(201).json(r.rows[0]);
+  } catch (err) {
+    if (err.code === '23505') return res.status(400).json({ error: 'Department already exists' });
+    console.error('Create department error:', err); res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/departments/:id', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { name, active, sortOrder } = req.body;
+    const r = await pool.query('UPDATE departments SET name=$1, active=$2, sort_order=$3 WHERE id=$4 RETURNING *',
+      [name.trim(), active !== false, sortOrder ?? 0, req.params.id]);
+    if (!r.rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json(r.rows[0]);
+  } catch (err) {
+    if (err.code === '23505') return res.status(400).json({ error: 'Department name already exists' });
+    console.error('Update department error:', err); res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/departments/:id', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM departments WHERE id=$1', [req.params.id]);
+    res.json({ message: 'Deleted' });
+  } catch (err) { console.error('Delete department error:', err); res.status(500).json({ error: err.message }); }
+});
+
+// ===== BALANCE TYPES =====
+app.get('/api/balance-types', authenticateToken, async (req, res) => {
+  try {
+    const r = await pool.query('SELECT * FROM balance_types ORDER BY sort_order, id');
+    res.json(r.rows);
+  } catch (err) { console.error('Get balance types error:', err); res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/balance-types', authenticateToken, requireAdmin, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { name, code, defaultBalance, color } = req.body;
+    if (!name?.trim() || !code?.trim()) return res.status(400).json({ error: 'Name and code required' });
+    await client.query('BEGIN');
+    const r = await client.query(
+      `INSERT INTO balance_types (name, code, default_balance, color)
+       VALUES ($1,$2,$3,$4) RETURNING *`,
+      [name.trim(), code.trim().toLowerCase(), Number(defaultBalance) || 0, color || '#10b981']
+    );
+    // Create a user_balances row for every existing user with the default balance
+    await client.query(
+      `INSERT INTO user_balances (user_id, balance_type_id, balance, used)
+       SELECT id, $1, $2, 0 FROM users
+       ON CONFLICT (user_id, balance_type_id) DO NOTHING`,
+      [r.rows[0].id, Number(defaultBalance) || 0]
+    );
+    await client.query('COMMIT');
+    res.status(201).json(r.rows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK').catch(()=>{});
+    if (err.code === '23505') return res.status(400).json({ error: 'Balance type name or code already exists' });
+    console.error('Create balance type error:', err); res.status(500).json({ error: err.message });
+  } finally { client.release(); }
+});
+
+app.put('/api/balance-types/:id', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { name, code, defaultBalance, color, active } = req.body;
+    const r = await pool.query(
+      `UPDATE balance_types SET name=$1, code=$2, default_balance=$3, color=$4, active=$5 WHERE id=$6 RETURNING *`,
+      [name.trim(), code.trim().toLowerCase(), Number(defaultBalance) || 0, color || '#10b981', active !== false, req.params.id]
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json(r.rows[0]);
+  } catch (err) {
+    if (err.code === '23505') return res.status(400).json({ error: 'Balance type name or code already exists' });
+    console.error('Update balance type error:', err); res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/balance-types/:id', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM balance_types WHERE id=$1', [req.params.id]);
+    res.json({ message: 'Deleted' });
+  } catch (err) { console.error('Delete balance type error:', err); res.status(500).json({ error: err.message }); }
+});
+
+// ===== USER BALANCES (per-user per-type) =====
+app.get('/api/user-balances', authenticateToken, async (req, res) => {
+  try {
+    const r = await pool.query(`
+      SELECT ub.*, bt.name AS balance_type_name, bt.code AS balance_type_code, bt.color AS balance_type_color
+      FROM user_balances ub
+      JOIN balance_types bt ON bt.id = ub.balance_type_id
+      ORDER BY ub.user_id, bt.sort_order, bt.id
+    `);
+    res.json(r.rows);
+  } catch (err) { console.error('Get user balances error:', err); res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/user-balances', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { userId, balanceTypeId, balance, used } = req.body;
+    const r = await pool.query(
+      `INSERT INTO user_balances (user_id, balance_type_id, balance, used, updated_at)
+       VALUES ($1,$2,$3,$4,NOW())
+       ON CONFLICT (user_id, balance_type_id) DO UPDATE
+         SET balance=EXCLUDED.balance, used=EXCLUDED.used, updated_at=NOW()
+       RETURNING *`,
+      [userId, balanceTypeId, Number(balance) || 0, Number(used) || 0]
+    );
+    res.json(r.rows[0]);
+  } catch (err) { console.error('Update user balance error:', err); res.status(500).json({ error: err.message }); }
 });
 
 app.delete('/api/activities/:id', authenticateToken, requireAdmin, async (req, res) => {
