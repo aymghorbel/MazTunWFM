@@ -1653,8 +1653,8 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
                     <div style={{fontWeight:600,fontSize:13,marginBottom:4}}>All days with activity:</div>
                     <select className="fsel" style={{fontSize:12,padding:"4px 8px"}} value={bulkActFilter} onChange={e=>setBulkActFilter(e.target.value)}>
                       <option value="">— Select activity —</option>
-                      {activities.filter(a=>a.active&&!a.isLeave&&(a.visibleTo==="both"||a.visibleTo===user.type)).map(a=>(
-                        <option key={a.id} value={a.name}>{a.name} ({editableEntries.filter(e=>e.activity===a.name).length}d)</option>
+                      {activityTypes.filter(a=>!LEAVE_ACTS_PS.includes(a)).map(a=>(
+                        <option key={a} value={a}>{a} ({editableEntries.filter(e=>e.activity===a).length}d)</option>
                       ))}
                     </select>
                   </div>
