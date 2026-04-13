@@ -1652,7 +1652,10 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
                   <div style={{flex:1}}>
                     <div style={{fontWeight:600,fontSize:13,marginBottom:4}}>All days with activity:</div>
                     <select className="fsel" style={{fontSize:12,padding:"4px 8px"}} value={bulkActFilter} onChange={e=>setBulkActFilter(e.target.value)}>
-                      {activityTypes.map(a=><option key={a} value={a}>{a} ({editableEntries.filter(e=>e.activity===a).length}d)</option>)}
+                      <option value="">— Select activity —</option>
+                      {activities.filter(a=>a.active&&!a.isLeave&&(a.visibleTo==="both"||a.visibleTo===user.type)).map(a=>(
+                        <option key={a.id} value={a.name}>{a.name} ({editableEntries.filter(e=>e.activity===a.name).length}d)</option>
+                      ))}
                     </select>
                   </div>
                 </label>
@@ -2195,7 +2198,7 @@ function ApprovalsView({user,requests,setRequests,users,setUsers,roles,tsStatuse
 // ─── REQUESTS VIEW ────────────────────────────────────────────────────────────
 function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses,setTsStatuses,activities}) {
   const [tab,setTab]=useState("mine");
-  const [mineFilter,setMineFilter]=useState("pending");
+  const [mineFilter,setMineFilter]=useState("all");
   const [show,setShow]=useState(false);
   const [form,setForm]=useState({type:"",start:"",end:"",comment:"",halfDayStart:"",halfDayEnd:"",durationHours:1,balanceSource:"annual",authStartTime:"08:00",authEndTime:"10:00"});
   const [attachFile,setAttachFile]=useState(null); // File object
