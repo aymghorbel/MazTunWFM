@@ -28,13 +28,15 @@ const fetchWithAuth = async (endpoint, options = {}) => {
     headers
   });
 
-  if (response.status === 401) {
-    handleSessionExpired();
-    throw new Error('Session expired. Please sign in again.');
-  }
-
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    // 401 on a token-authenticated request means the session expired — clear it and reload.
+    // But don't trigger on the login endpoint itself (those 401s mean wrong credentials).
+    const isLoginEndpoint = endpoint.startsWith('/auth/login') || endpoint.startsWith('/auth/sso');
+    if (response.status === 401 && token && !isLoginEndpoint) {
+      handleSessionExpired();
+      throw new Error('Session expired. Please sign in again.');
+    }
     throw new Error(error.error || `HTTP ${response.status}`);
   }
 
