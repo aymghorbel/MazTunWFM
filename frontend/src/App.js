@@ -1450,16 +1450,6 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
               <button className="btn bo bsm" title="Copy allocation pattern from previous month (matched by day of week)" onClick={copyPrevMonth}>
                 📋 Copy prev month
               </button>
-              {someSelected&&(
-                <button className="btn bp bsm" onClick={openBulkModal}>
-                  ✏️ Apply to {selected.size} selected
-                </button>
-              )}
-              {someSelected&&(
-                <button className="btn bo bsm" onClick={clearSel} style={{color:"var(--re)",borderColor:"var(--re)"}}>
-                  ✕ Clear selection
-                </button>
-              )}
               <span style={{marginLeft:"auto",fontSize:11,color:"var(--t3)"}}>
                 {someSelected?`${selected.size} of ${allEditable.length} selected`:`${allEditable.length} editable days · click rows to select`}
               </span>
