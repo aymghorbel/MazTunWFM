@@ -100,7 +100,20 @@ const authLimiter = rateLimit({
 
 // Middleware
 app.set('trust proxy', 1); // Trust first proxy hop (Docker / reverse proxy)
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: true,
+    directives: {
+      "default-src": ["'self'"],
+      "script-src": ["'self'", "'unsafe-inline'"],
+      "style-src": ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      "font-src": ["'self'", "https://fonts.gstatic.com", "data:"],
+      "img-src": ["'self'", "data:", "blob:", "https:"],
+      "connect-src": ["'self'", "https://fonts.googleapis.com", "https://fonts.gstatic.com", "https://login.microsoftonline.com"],
+    },
+  },
+  crossOriginEmbedderPolicy: false,
+}));
 
 app.use(cors({ origin: true, credentials: true }));
 

@@ -4868,7 +4868,7 @@ function Settings({user,users,setUsers,projects,setProjects,roles,setRoles,activ
                     <div style={{fontSize:13,marginBottom:8}}>Created: <strong>{importResult.created}</strong> · Skipped: <strong>{importResult.skipped||0}</strong></div>
                     {importResult.errors&&importResult.errors.length>0&&(
                       <div style={{fontSize:12,color:"var(--re)",maxHeight:120,overflowY:"auto",background:"var(--re)10",borderRadius:"var(--r)",padding:"8px 10px"}}>
-                        {importResult.errors.map((e,i)=><div key={i}>• {e}</div>)}
+                        {importResult.errors.map((e,i)=><div key={i}>• {typeof e==="string"?e:`Row ${e.row||"?"}${e.code?` [${e.code}]`:""}${e.email?` [${e.email}]`:""}: ${e.reason||"Unknown error"}`}</div>)}
                       </div>
                     )}
                   </div>}
