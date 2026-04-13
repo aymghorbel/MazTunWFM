@@ -29,19 +29,19 @@ async function run() {
   `);
   console.log('✓ projects.entity_id column');
 
-  // 4. Migrate stale type values to OPEX before changing constraint
-  await pool.query(`
-    UPDATE projects SET type = 'OPEX' WHERE type NOT IN ('CAPEX','OPEX','EXPLORATION')
-  `);
-  console.log('✓ projects.type values migrated');
-
-  // 5. Drop old type constraint and add new one
-  await pool.query(`ALTER TABLE projects DROP CONSTRAINT IF EXISTS projects_type_check`);
-  await pool.query(`
-    ALTER TABLE projects ADD CONSTRAINT projects_type_check
-      CHECK (type IN ('CAPEX','OPEX','EXPLORATION'))
-  `);
-  console.log('✓ projects.type constraint updated to CAPEX/OPEX/EXPLORATION');
+  // 4-5. Type column handling — only if it still exists (was dropped in drop_project_type migration)
+  const typeCol = await pool.query(
+    `SELECT 1 FROM information_schema.columns WHERE table_name='projects' AND column_name='type'`
+  );
+  if (typeCol.rowCount > 0) {
+    await pool.query(`UPDATE projects SET type = 'OPEX' WHERE type NOT IN ('CAPEX','OPEX','EXPLORATION')`);
+    console.log('✓ projects.type values migrated');
+    await pool.query(`ALTER TABLE projects DROP CONSTRAINT IF EXISTS projects_type_check`);
+    await pool.query(`ALTER TABLE projects ADD CONSTRAINT projects_type_check CHECK (type IN ('CAPEX','OPEX','EXPLORATION'))`);
+    console.log('✓ projects.type constraint updated to CAPEX/OPEX/EXPLORATION');
+  } else {
+    console.log('ℹ projects.type column already dropped — skipping type updates');
+  }
 
   await pool.end();
 }

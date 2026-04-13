@@ -3,6 +3,15 @@ const pool = require('./db');
 async function migrate() {
   const client = await pool.connect();
   try {
+    // Skip if the type column has already been dropped (post-removal)
+    const colCheck = await client.query(
+      `SELECT 1 FROM information_schema.columns WHERE table_name='projects' AND column_name='type'`
+    );
+    if (colCheck.rowCount === 0) {
+      console.log('CAPEX removal migration skipped — projects.type column already dropped.');
+      return;
+    }
+
     await client.query('BEGIN');
 
     // Migrate any existing CAPEX projects to OPEX
@@ -14,7 +23,6 @@ async function migrate() {
     }
 
     // Drop the old CHECK constraint and add the new one without CAPEX
-    // PostgreSQL constraint names follow the pattern: <table>_<column>_check
     await client.query(`
       ALTER TABLE projects DROP CONSTRAINT IF EXISTS projects_type_check;
     `);
