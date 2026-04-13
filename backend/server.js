@@ -654,13 +654,13 @@ app.get('/api/projects', authenticateToken, async (req, res) => {
 // Create project (admin only)
 app.post('/api/projects', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { code, name, type, dept, open, fieldAllowed, officeAllowed, color, expiryDate, entityId } = req.body;
+    const { code, name, dept, open, fieldAllowed, officeAllowed, color, expiryDate, entityId } = req.body;
 
     const result = await pool.query(
-      `INSERT INTO projects (code, name, type, dept, open, field_allowed, office_allowed, color, expiry_date, entity_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `INSERT INTO projects (code, name, dept, open, field_allowed, office_allowed, color, expiry_date, entity_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING *`,
-      [code, name, type, dept, open !== false, fieldAllowed !== false, officeAllowed !== false, color || '#7c3aed', expiryDate || null, entityId || null]
+      [code, name, dept, open !== false, fieldAllowed !== false, officeAllowed !== false, color || '#7c3aed', expiryDate || null, entityId || null]
     );
 
     res.status(201).json(result.rows[0]);
@@ -673,15 +673,15 @@ app.post('/api/projects', authenticateToken, requireAdmin, async (req, res) => {
 // Update project (admin only)
 app.put('/api/projects/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { code, name, type, dept, open, fieldAllowed, officeAllowed, color, expiryDate, entityId } = req.body;
+    const { code, name, dept, open, fieldAllowed, officeAllowed, color, expiryDate, entityId } = req.body;
 
     const result = await pool.query(
       `UPDATE projects
-       SET code = $1, name = $2, type = $3, dept = $4, open = $5,
-           field_allowed = $6, office_allowed = $7, color = $8, expiry_date = $9, entity_id = $10
-       WHERE id = $11
+       SET code = $1, name = $2, dept = $3, open = $4,
+           field_allowed = $5, office_allowed = $6, color = $7, expiry_date = $8, entity_id = $9
+       WHERE id = $10
        RETURNING *`,
-      [code, name, type, dept, open, fieldAllowed, officeAllowed, color, expiryDate || null, entityId || null, req.params.id]
+      [code, name, dept, open, fieldAllowed, officeAllowed, color, expiryDate || null, entityId || null, req.params.id]
     );
 
     if (result.rows.length === 0) {
@@ -786,7 +786,6 @@ app.post('/api/projects/import', authenticateToken, requireAdmin, async (req, re
   }
   if (rows.length > 500) return res.status(400).json({ error: 'Maximum 500 rows per import' });
 
-  const VALID_TYPES = new Set(['OPEX', 'OVERHEAD', 'INTERNAL']);
   const created = [];
   const errors = [];
 
@@ -800,7 +799,6 @@ app.post('/api/projects/import', authenticateToken, requireAdmin, async (req, re
     const rowNum = i + 1;
     const code = (row.code || '').trim().toUpperCase();
     const name = (row.name || '').trim();
-    const type = (row.type || 'OPEX').trim().toUpperCase();
     const dept = (row.dept || '').trim();
     const color = /^#[0-9a-fA-F]{6}$/.test(row.color || '') ? row.color : '#7c3aed';
     const fieldAllowed = String(row.field_allowed || '').toLowerCase() !== 'false';
@@ -808,15 +806,14 @@ app.post('/api/projects/import', authenticateToken, requireAdmin, async (req, re
 
     if (!code) { errors.push({ row: rowNum, code: '(empty)', reason: 'Code is required' }); continue; }
     if (!name) { errors.push({ row: rowNum, code, reason: 'Name is required' }); continue; }
-    if (!VALID_TYPES.has(type)) { errors.push({ row: rowNum, code, reason: `Type must be OPEX, OVERHEAD, or INTERNAL` }); continue; }
     if (existingCodes.has(code)) { errors.push({ row: rowNum, code, reason: 'Project code already exists' }); continue; }
 
     try {
       const result = await pool.query(
-        `INSERT INTO projects (code, name, type, dept, open, field_allowed, office_allowed, color)
-         VALUES ($1,$2,$3,$4,true,$5,$6,$7)
-         RETURNING id, code, name, type, dept, field_allowed, office_allowed, color`,
-        [code, name, type, dept || null, fieldAllowed, officeAllowed, color]
+        `INSERT INTO projects (code, name, dept, open, field_allowed, office_allowed, color)
+         VALUES ($1,$2,$3,true,$4,$5,$6)
+         RETURNING id, code, name, dept, field_allowed, office_allowed, color`,
+        [code, name, dept || null, fieldAllowed, officeAllowed, color]
       );
       existingCodes.add(code);
       created.push(result.rows[0]);
@@ -1777,7 +1774,6 @@ app.get('/api/reports/allocation', authenticateToken, requirePrivileged, async (
         p.id           AS project_id,
         p.code         AS project_code,
         p.name         AS project_name,
-        p.type         AS project_type,
         ce.code        AS entity_code,
         ce.name        AS entity_name,
         pd.dept,
@@ -1802,7 +1798,7 @@ app.get('/api/reports/allocation-detail', authenticateToken, requirePrivileged, 
     const result = await pool.query(`
       SELECT
         u.id AS user_id, u.name AS user_name, u.dept, u.type AS user_type,
-        p.id AS project_id, p.code AS project_code, p.name AS project_name, p.type AS project_type,
+        p.id AS project_id, p.code AS project_code, p.name AS project_name,
         COUNT(*)::int AS days_count,
         ROUND(SUM((alloc->>'allocation')::float)::numeric, 2) AS total_alloc,
         ROUND(SUM((alloc->>'allocation')::float * te.hours)::numeric, 1) AS total_hours
@@ -1815,7 +1811,7 @@ app.get('/api/reports/allocation-detail', authenticateToken, requirePrivileged, 
       WHERE te.year=$1 AND te.month=$2
         AND ts.status IN ('submitted','approved')
         AND jsonb_array_length(te.allocations) > 0
-      GROUP BY u.id, u.name, u.dept, u.type, p.id, p.code, p.name, p.type
+      GROUP BY u.id, u.name, u.dept, u.type, p.id, p.code, p.name
       ORDER BY p.code, u.name
     `, [year, month]);
     res.json(result.rows);
