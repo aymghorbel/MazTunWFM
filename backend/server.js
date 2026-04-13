@@ -90,12 +90,13 @@ const requirePrivileged = (req, res, next) => {
 // ── Rate limiters ────────────────────────────────────────────────────────────
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 20,
+  max: 50, // generous — only failed attempts count (skipSuccessfulRequests)
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'Too many attempts, please try again later.' },
+  message: { error: 'Too many login attempts, please try again in a few minutes.' },
   keyGenerator: (req) => req.ip?.replace(/:\d+$/, '') || req.ip || '127.0.0.1',
   validate: { ip: false },
+  skipSuccessfulRequests: true,
 });
 
 // Middleware
