@@ -4614,6 +4614,14 @@ function Settings({user,users,setUsers,projects,setProjects,roles,setRoles,activ
           <div><div style={{fontWeight:700,fontSize:15}}>Approval Workflows</div><div style={{fontSize:12,color:"var(--t3)"}}>{(workflows||[]).filter(w=>w.isActive).length} active · {(workflows||[]).filter(w=>!w.isActive).length} inactive</div></div>
           <button className="btn bp bsm" onClick={()=>{setWfForm({...BLANK_WF,steps:[{...BLANK_STEP}]});setWfModal("add");}}>+ Add Workflow</button>
         </div>
+        <div style={{padding:"10px 14px",background:"var(--vl)",borderRadius:"var(--rs)",border:"1px solid var(--v)",marginBottom:12,fontSize:12,lineHeight:1.5}}>
+          <strong>💡 Tip:</strong> Set a custom approver for a specific activity by creating a workflow with:
+          <ul style={{margin:"6px 0 0 18px",paddingLeft:0}}>
+            <li><b>Activity / Request Type</b> → the activity (e.g. "Annual Leave", "Mission")</li>
+            <li>One step with <b>Approver Type</b> = <b>Direct Manager</b> (employee's line manager) or <b>Specific User</b> (choose any user)</li>
+          </ul>
+          If no workflow matches a request, approval defaults to the employee's direct manager.
+        </div>
         <div className="tw"><table className="tbl"><thead><tr><th>Name</th><th>Trigger</th><th>Target</th><th>Steps</th><th>Priority</th><th>Active</th><th>Actions</th></tr></thead><tbody>
           {(workflows||[]).map(w=>(
             <tr key={w.id}>
