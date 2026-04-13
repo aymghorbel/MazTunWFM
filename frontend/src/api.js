@@ -4,6 +4,16 @@ const API_URL = process.env.REACT_APP_API_URL || '/api';
 // Get auth token from localStorage
 const getToken = () => localStorage.getItem('token');
 
+// Global session-expired handler — called on 401 responses
+const handleSessionExpired = () => {
+  if (localStorage.getItem('token')) {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    // Reload so the app shows the login screen
+    window.location.reload();
+  }
+};
+
 // Generic fetch with auth
 const fetchWithAuth = async (endpoint, options = {}) => {
   const token = getToken();
@@ -12,18 +22,35 @@ const fetchWithAuth = async (endpoint, options = {}) => {
     ...(token && { 'Authorization': `Bearer ${token}` }),
     ...options.headers
   };
-  
+
   const response = await fetch(`${API_URL}${endpoint}`, {
     ...options,
     headers
   });
-  
+
+  if (response.status === 401) {
+    handleSessionExpired();
+    throw new Error('Session expired. Please sign in again.');
+  }
+
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Unknown error' }));
     throw new Error(error.error || `HTTP ${response.status}`);
   }
-  
+
   return response.json();
+};
+
+// Verify current token is still valid — used on app startup
+export const verifySession = async () => {
+  const token = getToken();
+  if (!token) return false;
+  try {
+    await fetchWithAuth('/auth/totp/status');
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 // Unauthenticated fetch helper (for login endpoints)

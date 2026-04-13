@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from "recharts";
-import { authAPI, usersAPI, projectsAPI, requestsAPI, timesheetAPI, rolesAPI, payrollAPI, activitiesAPI, rotationAPI, companyAPI, totpAPI, auditAPI, emailAPI, pushAPI, holidaysAPI, companyEntitiesAPI, reportsAPI, workflowsAPI, erpRosterAPI, erpWeeksAPI, erpNotificationsAPI, uploadsAPI } from "./api";
+import { authAPI, usersAPI, projectsAPI, requestsAPI, timesheetAPI, rolesAPI, payrollAPI, activitiesAPI, rotationAPI, companyAPI, totpAPI, auditAPI, emailAPI, pushAPI, holidaysAPI, companyEntitiesAPI, reportsAPI, workflowsAPI, erpRosterAPI, erpWeeksAPI, erpNotificationsAPI, uploadsAPI, verifySession } from "./api";
 import { getMsalInstance, loginRequest, ssoEnabled } from "./msalConfig";
 
 // ─── Export helpers ────────────────────────────────────────────────────────────
@@ -5894,6 +5894,21 @@ export default function App() {
   // ── Auth state
   const [session,       setSession]       = useState(localStorage.getItem('token') ? JSON.parse(localStorage.getItem('user') || '{}').id : null);
   const [currentUser,   setCurrentUser]   = useState(JSON.parse(localStorage.getItem('user') || 'null'));
+  const [sessionChecked,setSessionChecked]= useState(false);
+
+  // Verify session is still valid on app startup — if expired, clear and show login
+  useEffect(() => {
+    if (!localStorage.getItem('token')) { setSessionChecked(true); return; }
+    verifySession().then(ok => {
+      if (!ok) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        setSession(null);
+        setCurrentUser(null);
+      }
+      setSessionChecked(true);
+    });
+  }, []);
   // ── UI state
   const [view,          setView]          = useState("dashboard");
   const [showPwdModal,  setShowPwdModal]  = useState(false);
@@ -6176,6 +6191,14 @@ export default function App() {
   }
 
   // ── Auth gates ───────────────────────────────────────────────────────────────
+  // While verifying the session on startup, show a blank splash so no stale data flashes
+  if (!sessionChecked && localStorage.getItem('token')) return (
+    <><style>{CSS}</style>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"var(--bg)"}}>
+        <div style={{fontSize:14,color:"var(--t3)"}}>Loading…</div>
+      </div>
+    </>
+  );
   if (!user) return (
     <><style>{CSS}</style><LoginScreen onLogin={handleLogin} onVerifyTOTP={handleTOTPLogin} cs={companySetting}/></>
   );
