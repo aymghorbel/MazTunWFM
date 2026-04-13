@@ -4329,9 +4329,9 @@ function Settings({user,users,setUsers,projects,setProjects,roles,setRoles,activ
       ? [['name','email','role','type','dept','manager_email','leave_balance'],
          ['Jane Smith','jane.smith@mazarine.tn','employee','office','Operations','','20'],
          ['Ali Ben','ali.ben@mazarine.tn','manager','field','Drilling','','20']]
-      : [['code','name','type','dept','color','field_allowed','office_allowed'],
-         ['PRJ-001','Field Maintenance','OPEX','Operations','#7c3aed','true','false'],
-         ['PRJ-002','Office IT','OVERHEAD','IT','#0ea5e9','false','true']];
+      : [['code','name','dept','color','field_allowed','office_allowed'],
+         ['PRJ-001','Field Maintenance','Operations','#7c3aed','true','false'],
+         ['PRJ-002','Office IT','IT','#0ea5e9','false','true']];
     const csv=data.map(r=>r.join(',')).join('\n');
     const a=document.createElement('a');
     a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
