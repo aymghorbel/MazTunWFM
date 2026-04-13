@@ -156,8 +156,8 @@ function ToastContainer() {
 
 // ─── CSS ──────────────────────────────────────────────────────────────────────
 // ── Theme definitions ─────────────────────────────────────────────────────────
+// Single theme — Microsoft Admin Center (Fluent UI style)
 const THEMES = {
-  default: { key:"default", label:"Light", ico:"☀️", vars:{} },
   enterprise: { key:"enterprise", label:"Enterprise", ico:"🏢", vars:{
     "--bg":"#f5f5f5","--surface":"#ffffff","--s2":"#faf9f8","--s3":"#edebe9",
     "--b":"#edebe9","--b2":"#8a8886",
@@ -177,19 +177,6 @@ const THEMES = {
     "--ent-on":"#0078d4","--ent-on-bg":"#deecf9",
     "--ent-extra":"#5c2d91","--ent-extra-bg":"#ede9fe",
     "--ent-hol":"#8a8886","--ent-hol-bg":"#faf9f8"
-  }},
-  dark: { key:"dark", label:"Dark", ico:"🌙", vars:{
-    "--bg":"#0f172a","--surface":"#1e293b","--s2":"#334155","--s3":"#475569",
-    "--b":"#334155","--b2":"#475569",
-    "--t":"#f1f5f9","--t2":"#cbd5e1","--t3":"#94a3b8",
-    "--v":"#a78bfa","--vl":"#1e1b4b","--vd":"#c4b5fd",
-    "--sk":"#38bdf8","--skl":"#0c4a6e",
-    "--gr":"#34d399","--grl":"#064e3b",
-    "--am":"#fbbf24","--aml":"#78350f",
-    "--re":"#f87171","--rel":"#7f1d1d",
-    "--sh":"0 1px 3px rgba(0,0,0,.3),0 1px 2px rgba(0,0,0,.2)",
-    "--shm":"0 4px 12px rgba(0,0,0,.4),0 2px 4px rgba(0,0,0,.3)",
-    "--shl":"0 10px 30px rgba(0,0,0,.5),0 4px 8px rgba(0,0,0,.3)"
   }},
 };
 
@@ -6266,20 +6253,14 @@ export default function App() {
   const [showTOTPModal, setShowTOTPModal] = useState(false);
   const [loading,       setLoading]       = useState(false);
   const [error,         setError]         = useState(null);
-  const [theme,         setTheme]         = useState(() => localStorage.getItem("maz_theme") || "enterprise");
+  const theme = "enterprise";
 
   // Apply theme CSS variables to document root
   useEffect(() => {
     const root = document.documentElement;
-    // Collect ALL variable keys from every theme
-    const allKeys = new Set();
-    Object.values(THEMES).forEach(t => Object.keys(t.vars).forEach(k => allKeys.add(k)));
-    allKeys.forEach(k => root.style.removeProperty(k));
-    // Apply selected theme overrides
-    const t = THEMES[theme];
+    const t = THEMES.enterprise;
     if (t && t.vars) Object.entries(t.vars).forEach(([k,v]) => root.style.setProperty(k,v));
-    localStorage.setItem("maz_theme", theme);
-  }, [theme]);
+  }, []);
 
   // ── Load company settings on mount (public endpoint, no auth needed) ──────────
   useEffect(() => {
@@ -6625,7 +6606,7 @@ export default function App() {
     audit:       {desc:"System activity log with user actions and change history",section:"Administration"},
     settings:    {desc:"Users, roles, projects, activities, and system configuration",section:"Administration"},
   };
-  const isEnterprise = theme === "enterprise";
+  const isEnterprise = true;
 
   return (
     <>
@@ -6666,15 +6647,6 @@ export default function App() {
               </>
             )}
           </nav>
-          <div style={{padding:"9px 13px",borderTop:"1px solid var(--b)",display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
-            {Object.values(THEMES).map(t => (
-              <button key={t.key} onClick={() => setTheme(t.key)} title={t.label} style={{
-                width:28,height:28,borderRadius:6,border:theme===t.key?"2px solid var(--v)":"1px solid var(--b)",
-                background:theme===t.key?"var(--vl)":"var(--s2)",cursor:"pointer",fontSize:13,
-                display:"flex",alignItems:"center",justifyContent:"center",padding:0
-              }}>{t.ico}</button>
-            ))}
-          </div>
         </aside>
 
         {/* ── Main ── */}
