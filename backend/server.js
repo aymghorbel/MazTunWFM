@@ -1044,6 +1044,8 @@ app.post('/api/requests', authenticateToken, async (req, res) => {
     }
 
     await client.query('COMMIT');
+    // Audit: request created
+    logAudit(req.user.id, 'request_created', `Request #${result.rows[0].id}: ${type} ${start}${end&&end!==start?' → '+end:''} (${daysCount||'—'}d)`, userId);
     res.status(201).json({ ...result.rows[0], daysDeducted, recoveryDeducted });
 
     // Notify approver(s) asynchronously (email + push)
@@ -1186,7 +1188,7 @@ app.put('/api/requests/:id', authenticateToken, async (req, res) => {
     const reqUserRow = await pool.query('SELECT name, email FROM users WHERE id=$1', [req2.user_id]);
     const reqUserName  = reqUserRow.rows[0]?.name  || `id=${req2.user_id}`;
     const reqUserEmail = reqUserRow.rows[0]?.email || null;
-    logAudit(req.user.id, `request_${(escalatedToL2 ? 'approved_l1' : status.toLowerCase())}`, `${escalatedToL2 ? 'Approved (L1)' : status} ${req2.type} for ${reqUserName} (${req2.start_date}→${req2.end_date})`, req2.user_id);
+    logAudit(req.user.id, `request_${(escalatedToL2 ? 'approved_l1' : status.toLowerCase())}`, `Request #${req2.id}: ${escalatedToL2 ? 'Approved (L1)' : status} ${req2.type} for ${reqUserName} (${req2.start_date?.toISOString?.().slice(0,10)||req2.start_date}→${req2.end_date?.toISOString?.().slice(0,10)||req2.end_date})${reviewComment?` — "${reviewComment}"`:''}`, req2.user_id);
     res.json({ ...req2, affectedMonths, daysRestored, recoveryRestored });
 
     // Notifications (email + push)
@@ -1328,6 +1330,8 @@ app.post('/api/requests/:id/cancel', authenticateToken, async (req, res) => {
     }
     await client.query('DELETE FROM requests WHERE id = $1', [req.params.id]);
     await client.query('COMMIT');
+    const reason = req.body?.reason ? ` — reason: ${req.body.reason}` : '';
+    logAudit(req.user.id, 'request_cancelled', `Request #${req.params.id}: ${request.type} ${request.start_date?.toISOString?.().slice(0,10)||request.start_date}${reason}`, request.user_id);
     res.json({ message: 'Request cancelled', daysRestored, recoveryRestored });
   } catch (err) {
     await client.query('ROLLBACK');
@@ -1725,6 +1729,28 @@ app.delete('/api/timesheets/:userId/:year/:month', authenticateToken, requireAdm
     res.json({ message: 'Timesheet deleted' });
   } catch (err) {
     console.error('Delete timesheet error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ===== REQUEST HISTORY (audit log entries filtered for a specific request) =====
+
+app.get('/api/requests/:id/history', authenticateToken, async (req, res) => {
+  try {
+    const reqRow = await pool.query('SELECT user_id FROM requests WHERE id=$1', [req.params.id]);
+    if (!reqRow.rows[0]) return res.status(404).json({ error: 'Request not found' });
+    const result = await pool.query(
+      `SELECT al.id, al.action, al.detail, al.created_at,
+              a.name AS actor_name, a.role AS actor_role
+       FROM audit_log al
+       LEFT JOIN users a ON al.actor_id = a.id
+       WHERE al.action LIKE 'request_%' AND al.detail LIKE $1
+       ORDER BY al.created_at ASC`,
+      [`Request #${req.params.id}:%`]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Request history error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });

@@ -148,7 +148,8 @@ export const requestsAPI = {
   cancel: (id, reason) => fetchWithAuth(`/requests/${id}/cancel`, {
     method: 'POST',
     body: JSON.stringify({ reason })
-  })
+  }),
+  getHistory: (id) => fetchWithAuth(`/requests/${id}/history`),
 };
 
 // Timesheet API

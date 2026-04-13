@@ -1739,6 +1739,14 @@ function ApprovalsView({user,requests,setRequests,users,setUsers,roles,tsStatuse
   const isAd=hasPerm(roles,user.role,"all");
   const canUnlock=isAd||hasPerm(roles,user.role,"hr_report");
   const [resetModal,setResetModal]=useState(null);
+  const [reqDetailModal,setReqDetailModal]=useState(null);
+  const [reqDetailHistory,setReqDetailHistory]=useState([]);
+  const [reqDetailLoading,setReqDetailLoading]=useState(false);
+  const openReqDetail=async(r)=>{
+    setReqDetailModal(r);setReqDetailHistory([]);setReqDetailLoading(true);
+    try{const h=await requestsAPI.getHistory(r.id);setReqDetailHistory(h||[]);}catch{}
+    setReqDetailLoading(false);
+  };
 
   async function resetTimesheet(){
     if(!resetModal) return;
@@ -2006,6 +2014,7 @@ function ApprovalsView({user,requests,setRequests,users,setUsers,roles,tsStatuse
                   Step {r.approvalStep}/{r.totalSteps}{r.status==="Pending L2"?" · L2 Review":""}
                 </span>}
                 {r.step1ReviewedBy&&<span style={{fontSize:10,color:"#059669"}}>✓ Mgr: {nm(r.step1ReviewedBy)}{r.step1ReviewedAt?" · "+r.step1ReviewedAt:""}</span>}
+                <button className="btn bo bxs" onClick={()=>openReqDetail(r)}>Details</button>
                 {canApproveRequest(r)&&(
                   <div style={{display:"flex",gap:4}}><button className="btn bs bxs" onClick={()=>approve(r.id)}>✓</button><button className="btn bd bxs" onClick={()=>reject(r.id)}>✗</button></div>
                 )}
@@ -2141,6 +2150,67 @@ function ApprovalsView({user,requests,setRequests,users,setUsers,roles,tsStatuse
           </div>
         </div>
       )}
+
+      {/* ── Request Detail Modal ── */}
+      {reqDetailModal&&(()=>{
+        const r=reqDetailModal;
+        const actionLabels={request_created:"Created",request_approved:"Approved",request_approved_l1:"Approved (L1)",request_rejected:"Rejected",request_cancelled:"Cancelled"};
+        const actionIcos={request_created:"📝",request_approved:"✅",request_approved_l1:"✔️",request_rejected:"❌",request_cancelled:"🚫"};
+        const actionColors={request_created:"var(--v)",request_approved:"var(--gr)",request_approved_l1:"var(--v)",request_rejected:"var(--re)",request_cancelled:"var(--t3)"};
+        return(
+        <div className="mo" onClick={e=>e.target.className==="mo"&&setReqDetailModal(null)}>
+          <div className="md" style={{maxWidth:620,width:"95vw",maxHeight:"90vh",overflowY:"auto"}}>
+            <div className="md-title" style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <span>Request #{r.id} Details</span>
+              <StatusBadge status={r.status}/>
+            </div>
+            <div className="fg">
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,padding:"10px 12px",background:"var(--s2)",borderRadius:"var(--rs)",fontSize:12}}>
+                <div><span style={{color:"var(--t3)"}}>Employee:</span> <b>{nm(r.userId)}</b></div>
+                <div><span style={{color:"var(--t3)"}}>Type:</span> <b>{r.type}</b></div>
+                <div><span style={{color:"var(--t3)"}}>Start:</span> <b>{r.start}{r.halfDayStart?` (${r.halfDayStart})`:""}</b></div>
+                <div><span style={{color:"var(--t3)"}}>End:</span> <b>{r.end}{r.halfDayEnd?` (${r.halfDayEnd})`:""}</b></div>
+                {r.type==="Temporary Authorization"?<>
+                  <div><span style={{color:"var(--t3)"}}>Time:</span> <b>{r.authStartTime||""} → {r.authEndTime||""}</b></div>
+                  <div><span style={{color:"var(--t3)"}}>Duration:</span> <b>{r.durationHours}h</b></div>
+                </>:<>
+                  <div><span style={{color:"var(--t3)"}}>Days:</span> <b>{r.daysCount===0.5?"½ day":r.daysCount+"d"}</b></div>
+                  <div><span style={{color:"var(--t3)"}}>Balance:</span> <b>{r.balanceSource==="recovery"?"🔄 Recovery":"Annual"}</b></div>
+                </>}
+                {r.totalSteps>1&&<div><span style={{color:"var(--t3)"}}>Step:</span> <b>{r.approvalStep}/{r.totalSteps}</b></div>}
+                {r.createdAt&&<div><span style={{color:"var(--t3)"}}>Submitted:</span> <b>{r.createdAt}</b></div>}
+              </div>
+              {r.comment&&(
+                <div style={{marginTop:10,padding:"8px 12px",background:"var(--s2)",borderRadius:"var(--rs)",fontSize:12}}>
+                  <span style={{color:"var(--t3)"}}>Comment:</span> {r.comment}
+                </div>
+              )}
+
+              <div style={{marginTop:14,borderTop:"1px solid var(--b)",paddingTop:12}}>
+                <div style={{fontSize:13,fontWeight:700,marginBottom:8}}>Change History</div>
+                {reqDetailLoading&&<div style={{fontSize:12,color:"var(--t3)"}}>Loading…</div>}
+                {!reqDetailLoading&&reqDetailHistory.length===0&&<div style={{fontSize:12,color:"var(--t3)",fontStyle:"italic"}}>No history entries yet.</div>}
+                {!reqDetailLoading&&reqDetailHistory.map((h,i)=>(
+                  <div key={h.id} style={{display:"flex",gap:10,padding:"8px 0",borderBottom:i<reqDetailHistory.length-1?"1px solid var(--b)":"none"}}>
+                    <div style={{fontSize:18,flexShrink:0,width:24,textAlign:"center"}}>{actionIcos[h.action]||"•"}</div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:12,fontWeight:600,color:actionColors[h.action]||"var(--t)"}}>
+                        {actionLabels[h.action]||h.action} <span style={{fontWeight:400,color:"var(--t3)"}}>by {h.actor_name||"System"}</span>
+                      </div>
+                      <div style={{fontSize:11,color:"var(--t3)",fontFamily:"'JetBrains Mono',monospace",marginTop:2}}>{new Date(h.created_at).toLocaleString()}</div>
+                      <div style={{fontSize:12,color:"var(--t2)",marginTop:3}}>{(h.detail||"").replace(/^Request #\d+:\s*/,"")}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="md-footer">
+              <button className="btn bo" onClick={()=>setReqDetailModal(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
     </div>
   );
 }
@@ -2169,6 +2239,14 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
   const [cancelModal,setCancelModal]=useState(null);
   const [cancelReason,setCancelReason]=useState("");
   const [histFilter,setHistFilter]=useState("all");
+  const [detailModal,setDetailModal]=useState(null);
+  const [detailHistory,setDetailHistory]=useState([]);
+  const [detailLoading,setDetailLoading]=useState(false);
+  const openDetail=async(r)=>{
+    setDetailModal(r);setDetailHistory([]);setDetailLoading(true);
+    try{const h=await requestsAPI.getHistory(r.id);setDetailHistory(h||[]);}catch{}
+    setDetailLoading(false);
+  };
   const fieldActs=activities.filter(a=>a.active&&(a.visibleTo==="field"||a.visibleTo==="both")).map(a=>a.name);
   const officeActs=activities.filter(a=>a.active&&(a.visibleTo==="office"||a.visibleTo==="both")).map(a=>a.name);
   const FTYP=[...new Set([...fieldActs,"Temporary Authorization"])];
@@ -2344,14 +2422,15 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
         <div>
           {myR.length===0&&<div className="empty"><div className="empty-ico">📋</div>No requests yet</div>}
           {myR.map(r=>(
-            <div className="rc" key={r.id}>
+            <div className="rc" key={r.id} style={{cursor:"pointer"}} onClick={(e)=>{if(e.target.tagName!=="BUTTON")openDetail(r);}}>
               <div className="ri" style={{background:r.type==="Annual Leave"?"#d1fae5":r.type==="Sick Leave"?"#fee2e2":"#f0f9ff"}}>{icos[r.type]||"📋"}</div>
               <div style={{flex:1}}><div style={{fontWeight:700,fontSize:13}}>{r.type}{r.balanceSource==="recovery"&&<span style={{marginLeft:5,fontSize:10,color:"var(--v)",fontWeight:400}}>🔄 Recovery</span>}</div><div style={{fontSize:11,color:"var(--t3)",fontFamily:"'JetBrains Mono',monospace"}}>{r.type==="Temporary Authorization"?`${r.start} · ${r.authStartTime||""}→${r.authEndTime||""} (${r.durationHours}h)`:`${r.start}${r.halfDayStart?" "+r.halfDayStart:""}${r.end!==r.start?" → "+r.end+(r.halfDayEnd?" "+r.halfDayEnd:""):""} · ${r.daysCount===0.5?"½ day":r.daysCount+"d"}`}{r.comment?" · "+r.comment:""}</div></div>
               <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",justifyContent:"flex-end"}}>
                 <StatusBadge status={r.status}/>
                 {r.totalSteps>1&&<span style={{fontSize:10,color:r.status==="Pending L2"?"#7c3aed":"var(--t3)",fontWeight:600}}>Step {r.approvalStep}/{r.totalSteps}</span>}
-                {(r.status==="Pending"||r.status==="Pending L2")&&<button className="btn bo bxs" onClick={()=>doCancelRequest(r.id,false,"")}>Cancel</button>}
-                {r.status==="Approved"&&<button className="btn bd bxs" onClick={()=>{setCancelModal({id:r.id,type:r.type,start:r.start,end:r.end,daysCount:r.daysCount,durationHours:r.durationHours});setCancelReason("");}}>Cancel</button>}
+                <button className="btn bo bxs" onClick={(e)=>{e.stopPropagation();openDetail(r);}}>Details</button>
+                {(r.status==="Pending"||r.status==="Pending L2")&&<button className="btn bo bxs" onClick={(e)=>{e.stopPropagation();doCancelRequest(r.id,false,"");}}>Cancel</button>}
+                {r.status==="Approved"&&<button className="btn bd bxs" onClick={(e)=>{e.stopPropagation();setCancelModal({id:r.id,type:r.type,start:r.start,end:r.end,daysCount:r.daysCount,durationHours:r.durationHours});setCancelReason("");}}>Cancel</button>}
               </div>
             </div>
           ))}
@@ -2375,14 +2454,17 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
               <div key={yr}>
                 <div style={{fontSize:11,fontWeight:700,color:"var(--t3)",textTransform:"uppercase",letterSpacing:1,marginBottom:6,marginTop:10,paddingBottom:4,borderBottom:"1px solid var(--b)"}}>{yr}</div>
                 {filtHistR.filter(r=>(r.start||"").startsWith(yr)).map(r=>(
-                  <div className="rc" key={r.id} style={{opacity:r.status==="Rejected"||r.status==="Cancelled"?0.72:1}}>
+                  <div className="rc" key={r.id} style={{opacity:r.status==="Rejected"||r.status==="Cancelled"?0.72:1,cursor:"pointer"}} onClick={(e)=>{if(e.target.tagName!=="BUTTON"&&e.target.tagName!=="SPAN")openDetail(r);}}>
                     <div className="ri" style={{background:r.type==="Annual Leave"?"#d1fae5":r.type==="Sick Leave"?"#fee2e2":"#f0f9ff"}}>{icos[r.type]||"📋"}</div>
                     <div style={{flex:1}}>
                       <div style={{fontWeight:700,fontSize:13}}>{r.type}{r.balanceSource==="recovery"&&<span style={{marginLeft:5,fontSize:10,color:"var(--v)",fontWeight:400}}>🔄 Recovery</span>}</div>
                       <div style={{fontSize:11,color:"var(--t3)",fontFamily:"'JetBrains Mono',monospace"}}>{r.type==="Temporary Authorization"?`${r.start} · ${r.authStartTime||""}→${r.authEndTime||""} (${r.durationHours}h)`:`${r.start}${r.halfDayStart?" "+r.halfDayStart:""}${r.end!==r.start?" → "+r.end+(r.halfDayEnd?" "+r.halfDayEnd:""):""} · ${r.daysCount===0.5?"½ day":r.daysCount+"d"}`}{r.comment?<span style={{color:"var(--t3)"}}> · {r.comment}</span>:""}</div>
-                      {r.attachmentUrl&&<div style={{marginTop:3}}><span style={{fontSize:11,color:"var(--v)",cursor:"pointer"}} onClick={async()=>{try{const d=await uploadsAPI.getDownloadUrl(r.attachmentUrl);window.open(d.url,"_blank");}catch{toast("Could not load attachment.");}}}>📎 View attachment</span></div>}
+                      {r.attachmentUrl&&<div style={{marginTop:3}}><span style={{fontSize:11,color:"var(--v)",cursor:"pointer"}} onClick={async(e)=>{e.stopPropagation();try{const d=await uploadsAPI.getDownloadUrl(r.attachmentUrl);window.open(d.url,"_blank");}catch{toast("Could not load attachment.");}}}>📎 View attachment</span></div>}
                     </div>
-                    <StatusBadge status={r.status}/>
+                    <div style={{display:"flex",alignItems:"center",gap:6}}>
+                      <StatusBadge status={r.status}/>
+                      <button className="btn bo bxs" onClick={(e)=>{e.stopPropagation();openDetail(r);}}>Details</button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -2596,6 +2678,72 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
           </div>
         </div>
       )}
+
+      {/* ── Request Detail Modal with audit trail ── */}
+      {detailModal&&(()=>{
+        const r=detailModal;
+        const actionLabels={request_created:"Created",request_approved:"Approved",request_approved_l1:"Approved (L1)",request_rejected:"Rejected",request_cancelled:"Cancelled",request_pending:"Pending"};
+        const actionIcos={request_created:"📝",request_approved:"✅",request_approved_l1:"✔️",request_rejected:"❌",request_cancelled:"🚫",request_pending:"⏳"};
+        const actionColors={request_created:"var(--v)",request_approved:"var(--gr)",request_approved_l1:"var(--v)",request_rejected:"var(--re)",request_cancelled:"var(--t3)"};
+        return(
+        <div className="mo" onClick={e=>e.target.className==="mo"&&setDetailModal(null)}>
+          <div className="md" style={{maxWidth:620,width:"95vw",maxHeight:"90vh",overflowY:"auto"}}>
+            <div className="md-title" style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <span>Request #{r.id} Details</span>
+              <StatusBadge status={r.status}/>
+            </div>
+            <div className="fg">
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,padding:"10px 12px",background:"var(--s2)",borderRadius:"var(--rs)",fontSize:12}}>
+                <div><span style={{color:"var(--t3)"}}>Employee:</span> <b>{nm(r.userId)}</b></div>
+                <div><span style={{color:"var(--t3)"}}>Type:</span> <b>{r.type}</b></div>
+                <div><span style={{color:"var(--t3)"}}>Start:</span> <b>{r.start}{r.halfDayStart?` (${r.halfDayStart})`:""}</b></div>
+                <div><span style={{color:"var(--t3)"}}>End:</span> <b>{r.end}{r.halfDayEnd?` (${r.halfDayEnd})`:""}</b></div>
+                {r.type==="Temporary Authorization"?<>
+                  <div><span style={{color:"var(--t3)"}}>Time:</span> <b>{r.authStartTime||""} → {r.authEndTime||""}</b></div>
+                  <div><span style={{color:"var(--t3)"}}>Duration:</span> <b>{r.durationHours}h</b></div>
+                </>:<>
+                  <div><span style={{color:"var(--t3)"}}>Days:</span> <b>{r.daysCount===0.5?"½ day":r.daysCount+"d"}</b></div>
+                  <div><span style={{color:"var(--t3)"}}>Balance:</span> <b>{r.balanceSource==="recovery"?"🔄 Recovery":"Annual"}</b></div>
+                </>}
+                {r.totalSteps>1&&<div><span style={{color:"var(--t3)"}}>Step:</span> <b>{r.approvalStep}/{r.totalSteps}</b></div>}
+                {r.createdAt&&<div><span style={{color:"var(--t3)"}}>Submitted:</span> <b>{r.createdAt}</b></div>}
+              </div>
+              {r.comment&&(
+                <div style={{marginTop:10,padding:"8px 12px",background:"var(--s2)",borderRadius:"var(--rs)",fontSize:12}}>
+                  <span style={{color:"var(--t3)"}}>Comment:</span> {r.comment}
+                </div>
+              )}
+              {r.attachmentUrl&&(
+                <div style={{marginTop:8}}>
+                  <button className="btn bo bsm" onClick={async()=>{try{const d=await uploadsAPI.getDownloadUrl(r.attachmentUrl);window.open(d.url,"_blank");}catch{toast("Could not load attachment.");}}}>📎 View Attachment</button>
+                </div>
+              )}
+
+              <div style={{marginTop:14,borderTop:"1px solid var(--b)",paddingTop:12}}>
+                <div style={{fontSize:13,fontWeight:700,marginBottom:8}}>Change History</div>
+                {detailLoading&&<div style={{fontSize:12,color:"var(--t3)"}}>Loading…</div>}
+                {!detailLoading&&detailHistory.length===0&&<div style={{fontSize:12,color:"var(--t3)",fontStyle:"italic"}}>No history entries yet.</div>}
+                {!detailLoading&&detailHistory.map((h,i)=>(
+                  <div key={h.id} style={{display:"flex",gap:10,padding:"8px 0",borderBottom:i<detailHistory.length-1?"1px solid var(--b)":"none"}}>
+                    <div style={{fontSize:18,flexShrink:0,width:24,textAlign:"center"}}>{actionIcos[h.action]||"•"}</div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:12,fontWeight:600,color:actionColors[h.action]||"var(--t)"}}>
+                        {actionLabels[h.action]||h.action} <span style={{fontWeight:400,color:"var(--t3)"}}>by {h.actor_name||"System"}</span>
+                      </div>
+                      <div style={{fontSize:11,color:"var(--t3)",fontFamily:"'JetBrains Mono',monospace",marginTop:2}}>{new Date(h.created_at).toLocaleString()}</div>
+                      <div style={{fontSize:12,color:"var(--t2)",marginTop:3}}>{(h.detail||"").replace(/^Request #\d+:\s*/,"")}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="md-footer">
+              <button className="btn bo" onClick={()=>setDetailModal(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
     </div>
   );
 }
