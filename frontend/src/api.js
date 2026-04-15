@@ -321,6 +321,11 @@ export const companyEntitiesAPI = {
 export const reportsAPI = {
   allocation: (year, month) => fetchWithAuth(`/reports/allocation?year=${year}&month=${month}`),
   allocationDetail: (year, month) => fetchWithAuth(`/reports/allocation-detail?year=${year}&month=${month}`),
+  allocationYTD: (year, endMonth, dept) => {
+    const qs = new URLSearchParams({ year, endMonth });
+    if (dept) qs.set('dept', dept);
+    return fetchWithAuth(`/reports/allocation-ytd?${qs.toString()}`);
+  },
 };
 
 // Workflows API

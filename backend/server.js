@@ -1864,6 +1864,48 @@ app.get('/api/reports/allocation-detail', authenticateToken, requirePrivileged, 
   }
 });
 
+// ===== YTD ALLOCATION REPORT (Finance team) =====
+// Year-to-date project allocation, optionally filtered by department.
+// Returns one row per (project, employee) with total hours/days across the
+// year (from Jan 1 up to the user-provided end month, inclusive).
+app.get('/api/reports/allocation-ytd', authenticateToken, requirePrivileged, async (req, res) => {
+  try {
+    const year = Number(req.query.year) || new Date().getFullYear();
+    const endMonth = Math.min(12, Math.max(1, Number(req.query.endMonth) || (new Date().getMonth() + 1)));
+    const dept = (req.query.dept || '').trim() || null;
+
+    const result = await pool.query(`
+      SELECT
+        u.id AS user_id, u.name AS user_name, u.email AS user_email,
+        u.payroll_id, u.dept, u.type AS user_type,
+        p.id AS project_id, p.code AS project_code, p.name AS project_name,
+        ce.code AS entity_code, ce.name AS entity_name,
+        COUNT(*)::int AS days_count,
+        ROUND(SUM((alloc->>'allocation')::float)::numeric, 2) AS total_alloc,
+        ROUND(SUM((alloc->>'allocation')::float * te.hours)::numeric, 1) AS total_hours,
+        MIN(te.month)::int AS first_month,
+        MAX(te.month)::int AS last_month
+      FROM timesheet_entries te
+      CROSS JOIN LATERAL jsonb_array_elements(te.allocations) AS alloc
+      JOIN timesheet_status ts
+        ON ts.user_id=te.user_id AND ts.year=te.year AND ts.month=te.month
+      JOIN users u ON u.id=te.user_id
+      JOIN projects p ON p.id=(alloc->>'projectId')::int
+      LEFT JOIN company_entities ce ON ce.id = p.entity_id
+      WHERE te.year=$1 AND te.month BETWEEN 1 AND $2
+        AND ts.status IN ('submitted','approved')
+        AND jsonb_array_length(te.allocations) > 0
+        AND ($3::text IS NULL OR u.dept=$3)
+      GROUP BY u.id, u.name, u.email, u.payroll_id, u.dept, u.type, p.id, p.code, p.name, ce.code, ce.name
+      ORDER BY u.dept NULLS LAST, u.name, p.code
+    `, [year, endMonth, dept]);
+    res.json({ year, endMonth, dept, rows: result.rows });
+  } catch (err) {
+    console.error('YTD allocation error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ===== PAYROLL SUMMARY =====
 
 app.get('/api/payroll-summary', authenticateToken, requirePrivileged, async (req, res) => {

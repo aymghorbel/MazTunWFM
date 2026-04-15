@@ -4517,11 +4517,25 @@ function AllocationReport() {
   const [month,setMonth]=useState(now.getMonth()+1);
   const [data,setData]=useState([]);
   const [loading,setLoading]=useState(false);
-  const [view,setView]=useState("projects"); // "projects" | "departments" | "employees"
+  const [view,setView]=useState("projects"); // "projects" | "departments" | "employees" | "ytd"
   const [detail,setDetail]=useState([]); // employee-level detail data
   const [detailLoading,setDetailLoading]=useState(false);
   const [expandedProj,setExpandedProj]=useState(null); // project id for drill-down
   const MN=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+  // ── YTD state (Finance report) ─────────────────────────────────────────────
+  const [ytdYear,setYtdYear]=useState(now.getFullYear());
+  const [ytdEndMonth,setYtdEndMonth]=useState(now.getMonth()+1);
+  const [ytdDept,setYtdDept]=useState("");
+  const [ytdRows,setYtdRows]=useState([]);
+  const [ytdLoading,setYtdLoading]=useState(false);
+  const [ytdGrouping,setYtdGrouping]=useState("employee"); // "employee" | "project" | "dept"
+
+  useEffect(()=>{
+    if(view!=="ytd")return;
+    setYtdLoading(true);
+    reportsAPI.allocationYTD(ytdYear,ytdEndMonth,ytdDept).then(r=>setYtdRows(r?.rows||[])).catch(()=>setYtdRows([])).finally(()=>setYtdLoading(false));
+  },[view,ytdYear,ytdEndMonth,ytdDept]);
 
   useEffect(()=>{
     setLoading(true);setExpandedProj(null);
@@ -4577,6 +4591,7 @@ function AllocationReport() {
           <div className={`tab ${view==="projects"?"active":""}`} onClick={()=>setView("projects")}>Projects by Dept</div>
           <div className={`tab ${view==="departments"?"active":""}`} onClick={()=>setView("departments")}>Depts by Project</div>
           <div className={`tab ${view==="employees"?"active":""}`} onClick={()=>setView("employees")}>Employee Detail</div>
+          <div className={`tab ${view==="ytd"?"active":""}`} onClick={()=>setView("ytd")}>📆 YTD (Finance)</div>
         </div>
         {loading&&<span style={{fontSize:12,color:"var(--t3)"}}>Loading…</span>}
       </div>
@@ -4884,6 +4899,273 @@ function AllocationReport() {
           })()}
         </>
       )}
+
+      {/* ── YTD FINANCE REPORT ──────────────────────────────────────────── */}
+      {view==="ytd"&&(()=>{
+        const ytdDepts=[...new Set(ytdRows.map(r=>r.dept).filter(Boolean))].sort();
+        const ytdProjects=[...new Map(ytdRows.map(r=>[r.project_id,{id:r.project_id,code:r.project_code,name:r.project_name,entityCode:r.entity_code}])).values()].sort((a,b)=>a.code.localeCompare(b.code));
+        const ytdEmployees=[...new Map(ytdRows.map(r=>[r.user_id,{id:r.user_id,name:r.user_name,email:r.user_email,payrollId:r.payroll_id,dept:r.dept,type:r.user_type}])).values()].sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+
+        const grandHours=ytdRows.reduce((s,r)=>s+Number(r.total_hours||0),0);
+        const grandDays=ytdRows.reduce((s,r)=>s+Number(r.days_count||0),0);
+
+        function cell(userId,projectId){
+          const r=ytdRows.find(x=>x.user_id===userId&&x.project_id===projectId);
+          return r?{hours:Number(r.total_hours),days:Number(r.days_count),alloc:Number(r.total_alloc)}:null;
+        }
+        function userTotal(uid){
+          return ytdRows.filter(r=>r.user_id===uid).reduce((s,r)=>s+Number(r.total_hours||0),0);
+        }
+        function projTotal(pid){
+          return ytdRows.filter(r=>r.project_id===pid).reduce((s,r)=>s+Number(r.total_hours||0),0);
+        }
+        function deptTotal(dept){
+          return ytdRows.filter(r=>r.dept===dept).reduce((s,r)=>s+Number(r.total_hours||0),0);
+        }
+
+        function exportYtd(){
+          const header=["Employee","Payroll ID","Department","Staff Type","Project Code","Project Name","Entity","Days","Total Alloc","Total Hours","Months Covered"];
+          const rows=[header];
+          ytdRows.forEach(r=>rows.push([
+            r.user_name,r.payroll_id||"",r.dept||"",r.user_type||"",r.project_code,r.project_name,r.entity_code||"",
+            r.days_count,r.total_alloc,r.total_hours,
+            `${MN[(r.first_month||1)-1]}–${MN[(r.last_month||1)-1]}`
+          ]));
+          rows.push([]);
+          rows.push(["TOTAL","","","","","","",grandDays,"",grandHours.toFixed(1),""]);
+          downloadXLSX(rows,`allocation-ytd-${ytdYear}-${ytdDept||"all"}`);
+        }
+
+        function exportMatrix(){
+          // Rows: employees, Columns: projects, Cells: hours
+          const header=["Employee","Payroll ID","Department",...ytdProjects.map(p=>p.code),"TOTAL"];
+          const rows=[header];
+          ytdEmployees.forEach(u=>{
+            const row=[u.name,u.payrollId||"",u.dept||""];
+            let rowTot=0;
+            ytdProjects.forEach(p=>{const c=cell(u.id,p.id);const h=c?c.hours:0;rowTot+=h;row.push(h||"");});
+            row.push(rowTot.toFixed(1));
+            rows.push(row);
+          });
+          const totalRow=["TOTAL","",""];
+          let gt=0;
+          ytdProjects.forEach(p=>{const pt=projTotal(p.id);gt+=pt;totalRow.push(pt.toFixed(1));});
+          totalRow.push(gt.toFixed(1));
+          rows.push(totalRow);
+          downloadXLSX(rows,`allocation-ytd-matrix-${ytdYear}-${ytdDept||"all"}`);
+        }
+
+        return(
+          <div>
+            {/* Controls */}
+            <div style={{display:"flex",gap:10,alignItems:"flex-end",marginBottom:14,flexWrap:"wrap",padding:"12px",background:"var(--s2)",borderRadius:"var(--rs)"}}>
+              <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                <label style={{fontSize:11,color:"var(--t3)",fontWeight:600}}>Year</label>
+                <input type="number" className="fi" value={ytdYear} onChange={e=>setYtdYear(Number(e.target.value))} style={{width:90}}/>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                <label style={{fontSize:11,color:"var(--t3)",fontWeight:600}}>Through Month</label>
+                <select className="fsel" value={ytdEndMonth} onChange={e=>setYtdEndMonth(Number(e.target.value))} style={{width:110}}>
+                  {MN.map((m,i)=><option key={i} value={i+1}>{m} {ytdYear}</option>)}
+                </select>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                <label style={{fontSize:11,color:"var(--t3)",fontWeight:600}}>Department</label>
+                <select className="fsel" value={ytdDept} onChange={e=>setYtdDept(e.target.value)} style={{width:180}}>
+                  <option value="">All Departments</option>
+                  {ytdDepts.map(d=><option key={d} value={d}>{d}</option>)}
+                </select>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                <label style={{fontSize:11,color:"var(--t3)",fontWeight:600}}>Group</label>
+                <select className="fsel" value={ytdGrouping} onChange={e=>setYtdGrouping(e.target.value)} style={{width:140}}>
+                  <option value="employee">By Employee</option>
+                  <option value="project">By Project</option>
+                  <option value="dept">By Department</option>
+                  <option value="matrix">Matrix (Emp × Proj)</option>
+                </select>
+              </div>
+              <div style={{flex:1}}/>
+              <button className="btn bg2 bsm" onClick={exportYtd}>📊 Export Detail</button>
+              <button className="btn bp bsm" onClick={exportMatrix}>📊 Export Matrix</button>
+            </div>
+
+            {/* Summary cards */}
+            <div className="sg" style={{marginBottom:14}}>
+              <div className="sc"><div className="sa" style={{background:"var(--v)"}}/><div className="sl">Period</div><div className="sv" style={{color:"var(--v)",fontSize:15}}>Jan → {MN[ytdEndMonth-1]} {ytdYear}</div><div className="sc2 neu">{ytdEndMonth} month{ytdEndMonth!==1?"s":""}</div></div>
+              <div className="sc"><div className="sa" style={{background:"var(--sk)"}}/><div className="sl">Employees</div><div className="sv" style={{color:"var(--sk)"}}>{ytdEmployees.length}</div><div className="sc2 neu">{ytdDept?`in ${ytdDept}`:"across all depts"}</div></div>
+              <div className="sc"><div className="sa" style={{background:"var(--gr)"}}/><div className="sl">Projects</div><div className="sv" style={{color:"var(--gr)"}}>{ytdProjects.length}</div><div className="sc2 neu">with allocations</div></div>
+              <div className="sc"><div className="sa" style={{background:"var(--am)"}}/><div className="sl">Total Hours</div><div className="sv" style={{color:"var(--am)"}}>{grandHours.toFixed(0)}</div><div className="sc2 neu">{grandDays} days</div></div>
+            </div>
+
+            {ytdLoading&&<div style={{padding:20,textAlign:"center",color:"var(--t3)",fontSize:13}}>Loading report…</div>}
+
+            {!ytdLoading&&ytdRows.length===0&&<div style={{color:"var(--t3)",fontSize:13,padding:"20px 0"}}>No submitted/approved timesheet allocations for this period{ytdDept?` in ${ytdDept}`:""}.</div>}
+
+            {/* Group: by Employee */}
+            {!ytdLoading&&ytdRows.length>0&&ytdGrouping==="employee"&&(
+              <div className="tw">
+                <table className="tbl">
+                  <thead><tr>
+                    <th>Employee</th><th>Payroll ID</th><th>Department</th><th>Project</th><th>Entity</th>
+                    <th style={{textAlign:"center"}}>Days</th><th style={{textAlign:"right"}}>Hours</th>
+                  </tr></thead>
+                  <tbody>
+                    {ytdEmployees.map(u=>{
+                      const userRows=ytdRows.filter(r=>r.user_id===u.id);
+                      const uTot=userRows.reduce((s,r)=>s+Number(r.total_hours||0),0);
+                      const uDays=userRows.reduce((s,r)=>s+Number(r.days_count||0),0);
+                      return(
+                        <React.Fragment key={u.id}>
+                          {userRows.map((r,idx)=>(
+                            <tr key={r.project_id+"-"+u.id}>
+                              {idx===0&&<td rowSpan={userRows.length+1} style={{fontWeight:600,verticalAlign:"top",borderRight:"1px solid var(--b)"}}>
+                                <div>{u.name}</div>
+                                <div style={{fontSize:10,color:"var(--t3)"}}>{u.type==="field"?"Field":"Office"}</div>
+                              </td>}
+                              {idx===0&&<td rowSpan={userRows.length+1} style={{verticalAlign:"top",fontFamily:"'JetBrains Mono',monospace",fontSize:11,color:"var(--t3)"}}>{u.payrollId||"—"}</td>}
+                              {idx===0&&<td rowSpan={userRows.length+1} style={{verticalAlign:"top"}}>{u.dept||"—"}</td>}
+                              <td><span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:11}}>{r.project_code}</span> <span style={{color:"var(--t3)",fontSize:11}}>{r.project_name}</span></td>
+                              <td>{r.entity_code?<span className="badge bgr2" style={{fontSize:10}}>{r.entity_code}</span>:"—"}</td>
+                              <td style={{textAlign:"center",fontWeight:600}}>{r.days_count}</td>
+                              <td style={{textAlign:"right",fontWeight:700,fontFamily:"'JetBrains Mono',monospace"}}>{Number(r.total_hours).toFixed(1)}</td>
+                            </tr>
+                          ))}
+                          <tr style={{background:"var(--vl)"}}>
+                            <td colSpan={2} style={{textAlign:"right",fontWeight:700,fontStyle:"italic"}}>Subtotal:</td>
+                            <td style={{textAlign:"center",fontWeight:700}}>{uDays}</td>
+                            <td style={{textAlign:"right",fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:"var(--v)"}}>{uTot.toFixed(1)}h</td>
+                          </tr>
+                        </React.Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Group: by Project */}
+            {!ytdLoading&&ytdRows.length>0&&ytdGrouping==="project"&&(
+              <div className="tw">
+                <table className="tbl">
+                  <thead><tr>
+                    <th>Project</th><th>Entity</th><th>Employee</th><th>Department</th>
+                    <th style={{textAlign:"center"}}>Days</th><th style={{textAlign:"right"}}>Hours</th>
+                  </tr></thead>
+                  <tbody>
+                    {ytdProjects.map(p=>{
+                      const projRows=ytdRows.filter(r=>r.project_id===p.id).sort((a,b)=>(a.user_name||"").localeCompare(b.user_name||""));
+                      const pt=projTotal(p.id);
+                      const pd=projRows.reduce((s,r)=>s+Number(r.days_count||0),0);
+                      return(
+                        <React.Fragment key={p.id}>
+                          {projRows.map((r,idx)=>(
+                            <tr key={r.project_id+"-"+r.user_id}>
+                              {idx===0&&<td rowSpan={projRows.length+1} style={{fontWeight:600,verticalAlign:"top",borderRight:"1px solid var(--b)"}}>
+                                <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:12}}>{p.code}</div>
+                                <div style={{fontSize:10,color:"var(--t3)"}}>{p.name}</div>
+                              </td>}
+                              {idx===0&&<td rowSpan={projRows.length+1} style={{verticalAlign:"top"}}>{p.entityCode?<span className="badge bgr2" style={{fontSize:10}}>{p.entityCode}</span>:"—"}</td>}
+                              <td>{r.user_name}{r.payroll_id&&<span style={{fontSize:10,color:"var(--t3)",marginLeft:6,fontFamily:"'JetBrains Mono',monospace"}}>#{r.payroll_id}</span>}</td>
+                              <td>{r.dept||"—"}</td>
+                              <td style={{textAlign:"center",fontWeight:600}}>{r.days_count}</td>
+                              <td style={{textAlign:"right",fontWeight:700,fontFamily:"'JetBrains Mono',monospace"}}>{Number(r.total_hours).toFixed(1)}</td>
+                            </tr>
+                          ))}
+                          <tr style={{background:"var(--vl)"}}>
+                            <td colSpan={3} style={{textAlign:"right",fontWeight:700,fontStyle:"italic"}}>Project Subtotal:</td>
+                            <td style={{textAlign:"center",fontWeight:700}}>{pd}</td>
+                            <td style={{textAlign:"right",fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:"var(--v)"}}>{pt.toFixed(1)}h</td>
+                          </tr>
+                        </React.Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Group: by Department */}
+            {!ytdLoading&&ytdRows.length>0&&ytdGrouping==="dept"&&(
+              <div className="tw">
+                <table className="tbl">
+                  <thead><tr>
+                    <th>Department</th><th>Employee</th><th>Project</th><th>Entity</th>
+                    <th style={{textAlign:"center"}}>Days</th><th style={{textAlign:"right"}}>Hours</th>
+                  </tr></thead>
+                  <tbody>
+                    {[...new Set(ytdRows.map(r=>r.dept||"— No Dept"))].sort().map(dept=>{
+                      const dRows=ytdRows.filter(r=>(r.dept||"— No Dept")===dept).sort((a,b)=>(a.user_name||"").localeCompare(b.user_name||"")||(a.project_code||"").localeCompare(b.project_code||""));
+                      const dt=deptTotal(dept==="— No Dept"?null:dept)||dRows.reduce((s,r)=>s+Number(r.total_hours||0),0);
+                      const dd=dRows.reduce((s,r)=>s+Number(r.days_count||0),0);
+                      return(
+                        <React.Fragment key={dept}>
+                          {dRows.map((r,idx)=>(
+                            <tr key={dept+"-"+r.user_id+"-"+r.project_id}>
+                              {idx===0&&<td rowSpan={dRows.length+1} style={{fontWeight:700,verticalAlign:"top",borderRight:"1px solid var(--b)",background:"var(--s2)"}}>{dept}</td>}
+                              <td>{r.user_name}</td>
+                              <td><span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:600}}>{r.project_code}</span> <span style={{color:"var(--t3)",fontSize:11}}>{r.project_name}</span></td>
+                              <td>{r.entity_code?<span className="badge bgr2" style={{fontSize:10}}>{r.entity_code}</span>:"—"}</td>
+                              <td style={{textAlign:"center",fontWeight:600}}>{r.days_count}</td>
+                              <td style={{textAlign:"right",fontWeight:700,fontFamily:"'JetBrains Mono',monospace"}}>{Number(r.total_hours).toFixed(1)}</td>
+                            </tr>
+                          ))}
+                          <tr style={{background:"var(--vl)"}}>
+                            <td colSpan={3} style={{textAlign:"right",fontWeight:700,fontStyle:"italic"}}>Dept Subtotal:</td>
+                            <td style={{textAlign:"center",fontWeight:700}}>{dd}</td>
+                            <td style={{textAlign:"right",fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:"var(--v)"}}>{dt.toFixed(1)}h</td>
+                          </tr>
+                        </React.Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Group: Matrix (Employee × Project) */}
+            {!ytdLoading&&ytdRows.length>0&&ytdGrouping==="matrix"&&(
+              <div className="tw" style={{maxHeight:"65vh",overflow:"auto"}}>
+                <table className="tbl" style={{fontSize:11}}>
+                  <thead><tr>
+                    <th style={{position:"sticky",left:0,top:0,background:"var(--s2)",zIndex:3,minWidth:200}}>Employee</th>
+                    <th style={{position:"sticky",top:0,background:"var(--s2)",zIndex:2}}>Dept</th>
+                    {ytdProjects.map(p=><th key={p.id} style={{textAlign:"center",position:"sticky",top:0,background:"var(--s2)",zIndex:2,minWidth:80}} title={p.name}><div style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700}}>{p.code}</div></th>)}
+                    <th style={{position:"sticky",top:0,background:"var(--s2)",zIndex:2,textAlign:"right"}}>Total</th>
+                  </tr></thead>
+                  <tbody>
+                    {ytdEmployees.map(u=>{
+                      const uTot=userTotal(u.id);
+                      return(
+                        <tr key={u.id}>
+                          <td style={{position:"sticky",left:0,background:"var(--surface)",fontWeight:600,zIndex:1}}>
+                            <div>{u.name}</div>
+                            <div style={{fontSize:10,color:"var(--t3)",fontFamily:"'JetBrains Mono',monospace"}}>{u.payrollId||"—"}</div>
+                          </td>
+                          <td style={{fontSize:11}}>{u.dept||"—"}</td>
+                          {ytdProjects.map(p=>{
+                            const c=cell(u.id,p.id);
+                            return <td key={p.id} style={{textAlign:"center",fontFamily:"'JetBrains Mono',monospace",background:c?"var(--vl)":"transparent"}}>{c?c.hours.toFixed(1):""}</td>;
+                          })}
+                          <td style={{textAlign:"right",fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:"var(--v)",background:"var(--s2)"}}>{uTot.toFixed(1)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{background:"var(--s2)"}}>
+                      <td style={{position:"sticky",left:0,background:"var(--s2)",fontWeight:700,zIndex:1}}>Project Totals</td>
+                      <td/>
+                      {ytdProjects.map(p=><td key={p.id} style={{textAlign:"center",fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:"var(--v)"}}>{projTotal(p.id).toFixed(1)}</td>)}
+                      <td style={{textAlign:"right",fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:"var(--v)"}}>{grandHours.toFixed(1)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
