@@ -3832,6 +3832,51 @@ function CrewPlannerView({user,users,requests=[],rotations=[],setRotationPlans,r
   function nextMonths(){const d=new Date(startMonth);d.setMonth(d.getMonth()+1);setStartMonth(d);}
   function goToday(){setStartMonth(new Date(today.getFullYear(),today.getMonth(),1));}
 
+  // ── CSV import ─────────────────────────────────────────────────────────────
+  const [importResult,setImportResult]=useState(null);
+  const [importing,setImporting]=useState(false);
+
+  function downloadRotationTemplate(){
+    const rows=[
+      ["payroll_id","on_start","on_end"],
+      ["EMP-0001","2026-01-01","2026-01-14"],
+      ["EMP-0001","2026-01-29","2026-02-11"],
+      ["EMP-0002","2026-01-08","2026-01-21"],
+    ];
+    const csv=rows.map(r=>r.join(",")).join("\n");
+    const a=document.createElement("a");
+    a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);
+    a.download="rotations-import-template.csv";
+    a.click();
+  }
+
+  async function handleImportFile(e){
+    const file=e.target.files?.[0];if(!file)return;
+    setImporting(true);setImportResult(null);
+    try{
+      const text=await file.text();
+      // Simple CSV parser — accepts comma or semicolon separators
+      const lines=text.split(/\r?\n/).filter(l=>l.trim());
+      if(lines.length<2){toast("CSV is empty.");setImporting(false);return;}
+      const sep=lines[0].includes(";")?";":",";
+      const headers=lines[0].split(sep).map(s=>s.trim().toLowerCase());
+      const rows=lines.slice(1).map(line=>{
+        const parts=line.split(sep).map(s=>s.trim());
+        const row={};headers.forEach((h,i)=>{row[h]=parts[i]||"";});
+        return row;
+      });
+      const res=await rotationAPI.importCSV(rows);
+      setImportResult(res);
+      // Refresh rotations list
+      if(res.created>0){
+        const fresh=await rotationAPI.getAll();
+        setRotationPlans(fresh.map(r=>({id:r.id,userId:r.user_id,onStart:r.on_start,onEnd:r.on_end})));
+      }
+    }catch(err){toast("Import failed: "+err.message);}
+    setImporting(false);
+    e.target.value="";
+  }
+
   // Rotations for a specific user, sorted by start date
   function userRotations(uid){
     return rotations.filter(r=>r.userId===uid).sort((a,b)=>new Date(a.onStart)-new Date(b.onStart));
@@ -3901,8 +3946,27 @@ function CrewPlannerView({user,users,requests=[],rotations=[],setRotationPlans,r
           <option value="">All Departments</option>
           {depts.map(d=><option key={d} value={d}>{d}</option>)}
         </select>
+        {canManage&&<button className="btn bg2 bsm" onClick={downloadRotationTemplate} title="Download CSV template with date format info">⬇ Template</button>}
+        {canManage&&<label className="btn bg2 bsm" style={{cursor:"pointer",margin:0}}><input type="file" accept=".csv" style={{display:"none"}} onChange={handleImportFile} disabled={importing}/>{importing?"Importing…":"📥 Import CSV"}</label>}
         <button className="btn bp bsm" onClick={exportCSV}>📊 Export</button>
       </div>
+      {importResult&&(
+        <div style={{marginBottom:10,padding:"10px 14px",background:importResult.errors?.length>0?"#fef3c7":"#dcfce7",border:`1px solid ${importResult.errors?.length>0?"#f59e0b":"#10b981"}`,borderRadius:"var(--rs)",fontSize:12}}>
+          <div style={{fontWeight:700,marginBottom:4}}>Import result: <span style={{color:"#166534"}}>{importResult.created} rotation(s) imported</span>{importResult.errors?.length>0&&<span style={{color:"#92400e"}}> · {importResult.errors.length} error(s)</span>}</div>
+          {importResult.errors?.length>0&&(
+            <div style={{maxHeight:100,overflowY:"auto",fontSize:11,color:"#78350f"}}>
+              {importResult.errors.slice(0,10).map((e,i)=><div key={i}>• Row {e.row}{e.payrollId?` [${e.payrollId}]`:""}: {e.reason}</div>)}
+              {importResult.errors.length>10&&<div>…and {importResult.errors.length-10} more</div>}
+            </div>
+          )}
+          <button className="btn bo bxs" style={{marginTop:6}} onClick={()=>setImportResult(null)}>Dismiss</button>
+        </div>
+      )}
+      {canManage&&(
+        <div style={{padding:"8px 12px",background:"var(--s2)",borderRadius:"var(--rs)",fontSize:11,color:"var(--t3)",marginBottom:12,fontFamily:"'JetBrains Mono',monospace"}}>
+          📋 CSV columns: <b>payroll_id</b>, <b>on_start</b>, <b>on_end</b> (dates in <b>YYYY-MM-DD</b> format, e.g. 2026-04-15). One row per rotation period.
+        </div>
+      )}
 
       {/* Legend */}
       <div style={{display:"flex",gap:10,marginBottom:10,flexWrap:"wrap",fontSize:11}}>
@@ -3944,7 +4008,7 @@ function CrewPlannerView({user,users,requests=[],rotations=[],setRotationPlans,r
                   <div style={{display:"flex",alignItems:"center",gap:6,justifyContent:"space-between"}}>
                     <div style={{minWidth:0}}>
                       <div style={{fontSize:12,fontWeight:600}}>{u.name}</div>
-                      <div style={{fontSize:10,color:"var(--t3)"}}>{u.dept||""} · {userRotations(u.id).length} rot</div>
+                      <div style={{fontSize:10,color:"var(--t3)"}}>{u.payrollId?`#${u.payrollId} · `:""}{u.dept||""} · {userRotations(u.id).length} rot</div>
                     </div>
                     {canManage&&<button className="btn bo bxs" style={{fontSize:10,padding:"2px 6px"}} onClick={()=>{setManageModal(u);setRotForm({onStart:"",onEnd:"",editId:null});}}>✏️</button>}
                   </div>
@@ -3982,21 +4046,16 @@ function CrewPlannerView({user,users,requests=[],rotations=[],setRotationPlans,r
                 <div style={{fontSize:12,fontWeight:700,marginBottom:6}}>Existing Rotations ({urots.length})</div>
                 {urots.length===0&&<div style={{fontSize:12,color:"var(--t3)",padding:"10px 12px",background:"var(--s2)",borderRadius:"var(--rs)",fontStyle:"italic"}}>No rotations yet — using default 14/14 cycle from 2025-01-01.</div>}
                 {urots.map(r=>{
-                  const onStart=r.onStart?.slice(0,10)||r.onStart;
-                  const onEnd=r.onEnd?.slice(0,10)||r.onEnd;
-                  const onDays=Math.floor((new Date(onEnd)-new Date(onStart))/86400000)+1;
-                  const offStart=new Date(onEnd);offStart.setDate(offStart.getDate()+1);
-                  const offEnd=new Date(onEnd);offEnd.setDate(offEnd.getDate()+onDays);
+                  const toISO=d=>{ if(!d) return ""; if(typeof d==="string") return d.slice(0,10); try{return new Date(d).toISOString().slice(0,10);}catch{return String(d);} };
+                  const onStart=toISO(r.onStart);
+                  const onEnd=toISO(r.onEnd);
+                  const onDays=onStart&&onEnd?Math.floor((new Date(onEnd)-new Date(onStart))/86400000)+1:0;
                   return(
-                    <div key={r.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",background:"var(--s2)",borderRadius:"var(--rs)",marginBottom:6,fontSize:12}}>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontWeight:600}}>
-                          <span style={{color:"#166534"}}>ON</span> {onStart} → {onEnd} <span style={{color:"var(--t3)"}}>({onDays}d)</span>
-                        </div>
-                        <div style={{fontSize:11,color:"var(--t3)",marginTop:2}}>
-                          <span style={{color:"#64748b"}}>OFF</span> {offStart.toISOString().slice(0,10)} → {offEnd.toISOString().slice(0,10)} ({onDays}d)
-                        </div>
-                      </div>
+                    <div key={r.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",background:"var(--s2)",borderRadius:"var(--rs)",marginBottom:4,fontSize:12,fontFamily:"'JetBrains Mono',monospace"}}>
+                      <span style={{background:"#dcfce7",color:"#166534",padding:"2px 6px",borderRadius:3,fontWeight:700,fontSize:10}}>ON</span>
+                      <span style={{fontWeight:600}}>{onStart} → {onEnd}</span>
+                      <span style={{color:"var(--t3)"}}>({onDays}d)</span>
+                      <div style={{flex:1}}/>
                       <button className="btn bo bxs" onClick={()=>startEditRotation(r)}>Edit</button>
                       <button className="btn bd bxs" onClick={()=>deleteRotation(r.id)}>🗑</button>
                     </div>
@@ -5445,8 +5504,8 @@ function Settings({user,users,setUsers,projects,setProjects,roles,setRoles,activ
         </div></div>
       </div>)}
       {/* Modals */}
-      {editUser&&(<div className="mo" onClick={e=>e.target.className==="mo"&&setEditUser(null)}><div className="md"><div className="md-title">Edit User</div><div className="fg"><div className="fgrp"><label className="flbl">Full Name</label><input className="fi" value={editUser.name} onChange={e=>setEditUser(u=>({...u,name:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Email</label><input className="fi" value={editUser.email} onChange={e=>setEditUser(u=>({...u,email:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Role</label><select className="fsel" value={editUser.role} onChange={e=>setEditUser(u=>({...u,role:e.target.value}))}>{Object.entries(roles).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select></div><div className="fgrp"><label className="flbl">Staff Type</label><select className="fsel" value={editUser.type} onChange={e=>setEditUser(u=>({...u,type:e.target.value}))}><option value="field">Field</option><option value="office">Office</option></select></div><div className="fgrp"><label className="flbl">Department</label><select className="fsel" value={editUser.dept||""} onChange={e=>setEditUser(u=>({...u,dept:e.target.value}))}><option value="">— None —</option>{departments.filter(d=>d.active!==false).map(d=><option key={d.id} value={d.name}>{d.name}</option>)}</select></div><div className="fgrp"><label className="flbl">Line Manager</label><select className="fsel" value={editUser.manager||""} onChange={e=>setEditUser(u=>({...u,manager:Number(e.target.value)||null}))}><option value="">None</option>{mgrs.filter(m=>m.id!==editUser.id&&m.role!=="superadmin").map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></div><div className="fgrp"><label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",userSelect:"none"}}><input type="checkbox" checked={!!editUser.allowOverlap} onChange={e=>setEditUser(u=>({...u,allowOverlap:e.target.checked}))} style={{accentColor:"var(--v)",width:15,height:15,flexShrink:0}}/><span className="flbl" style={{margin:0}}>Allow overlapping requests</span></label><div style={{fontSize:11,color:"var(--t3)",marginTop:3,paddingLeft:23}}>This user can submit leave that overlaps with teammates' approved or pending requests.</div></div></div><div className="md-footer"><button className="btn bo" onClick={()=>setEditUser(null)}>Cancel</button><button className="btn bp" onClick={saveUser}>Save</button></div></div></div>)}
-      {showAdd&&(<div className="mo" onClick={e=>e.target.className==="mo"&&setShowAdd(false)}><div className="md"><div className="md-title">Add New User</div><div className="fg"><div className="fgrp"><label className="flbl">Full Name</label><input className="fi" placeholder="First Last" value={newUser.name} onChange={e=>setNewUser(u=>({...u,name:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Email</label><input className="fi" placeholder="name@mazarine.tn" value={newUser.email} onChange={e=>setNewUser(u=>({...u,email:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Role</label><select className="fsel" value={newUser.role} onChange={e=>setNewUser(u=>({...u,role:e.target.value}))}>{Object.entries(roles).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select></div><div className="fgrp"><label className="flbl">Staff Type</label><select className="fsel" value={newUser.type} onChange={e=>setNewUser(u=>({...u,type:e.target.value}))}><option value="field">Field</option><option value="office">Office</option></select></div><div className="fgrp"><label className="flbl">Department</label><select className="fsel" value={newUser.dept||""} onChange={e=>setNewUser(u=>({...u,dept:e.target.value}))}><option value="">— None —</option>{departments.filter(d=>d.active!==false).map(d=><option key={d.id} value={d.name}>{d.name}</option>)}</select></div><div className="fgrp"><label className="flbl">Line Manager</label><select className="fsel" value={newUser.manager||""} onChange={e=>setNewUser(u=>({...u,manager:Number(e.target.value)||null}))}><option value="">None</option>{mgrs.filter(m=>m.role!=="superadmin").map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></div></div><div className="md-footer"><button className="btn bo" onClick={()=>setShowAdd(false)}>Cancel</button><button className="btn bp" onClick={addUser}>Add</button></div></div></div>)}
+      {editUser&&(<div className="mo" onClick={e=>e.target.className==="mo"&&setEditUser(null)}><div className="md"><div className="md-title">Edit User</div><div className="fg"><div className="fgrp"><label className="flbl">Full Name</label><input className="fi" value={editUser.name} onChange={e=>setEditUser(u=>({...u,name:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Email</label><input className="fi" value={editUser.email} onChange={e=>setEditUser(u=>({...u,email:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Payroll ID</label><input className="fi" placeholder="e.g. EMP-0042" value={editUser.payrollId||""} onChange={e=>setEditUser(u=>({...u,payrollId:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Role</label><select className="fsel" value={editUser.role} onChange={e=>setEditUser(u=>({...u,role:e.target.value}))}>{Object.entries(roles).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select></div><div className="fgrp"><label className="flbl">Staff Type</label><select className="fsel" value={editUser.type} onChange={e=>setEditUser(u=>({...u,type:e.target.value}))}><option value="field">Field</option><option value="office">Office</option></select></div><div className="fgrp"><label className="flbl">Department</label><select className="fsel" value={editUser.dept||""} onChange={e=>setEditUser(u=>({...u,dept:e.target.value}))}><option value="">— None —</option>{departments.filter(d=>d.active!==false).map(d=><option key={d.id} value={d.name}>{d.name}</option>)}</select></div><div className="fgrp"><label className="flbl">Line Manager</label><select className="fsel" value={editUser.manager||""} onChange={e=>setEditUser(u=>({...u,manager:Number(e.target.value)||null}))}><option value="">None</option>{mgrs.filter(m=>m.id!==editUser.id&&m.role!=="superadmin").map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></div><div className="fgrp"><label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",userSelect:"none"}}><input type="checkbox" checked={!!editUser.allowOverlap} onChange={e=>setEditUser(u=>({...u,allowOverlap:e.target.checked}))} style={{accentColor:"var(--v)",width:15,height:15,flexShrink:0}}/><span className="flbl" style={{margin:0}}>Allow overlapping requests</span></label><div style={{fontSize:11,color:"var(--t3)",marginTop:3,paddingLeft:23}}>This user can submit leave that overlaps with teammates' approved or pending requests.</div></div></div><div className="md-footer"><button className="btn bo" onClick={()=>setEditUser(null)}>Cancel</button><button className="btn bp" onClick={saveUser}>Save</button></div></div></div>)}
+      {showAdd&&(<div className="mo" onClick={e=>e.target.className==="mo"&&setShowAdd(false)}><div className="md"><div className="md-title">Add New User</div><div className="fg"><div className="fgrp"><label className="flbl">Full Name</label><input className="fi" placeholder="First Last" value={newUser.name} onChange={e=>setNewUser(u=>({...u,name:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Email</label><input className="fi" placeholder="name@mazarine.tn" value={newUser.email} onChange={e=>setNewUser(u=>({...u,email:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Payroll ID</label><input className="fi" placeholder="e.g. EMP-0042" value={newUser.payrollId||""} onChange={e=>setNewUser(u=>({...u,payrollId:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Role</label><select className="fsel" value={newUser.role} onChange={e=>setNewUser(u=>({...u,role:e.target.value}))}>{Object.entries(roles).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select></div><div className="fgrp"><label className="flbl">Staff Type</label><select className="fsel" value={newUser.type} onChange={e=>setNewUser(u=>({...u,type:e.target.value}))}><option value="field">Field</option><option value="office">Office</option></select></div><div className="fgrp"><label className="flbl">Department</label><select className="fsel" value={newUser.dept||""} onChange={e=>setNewUser(u=>({...u,dept:e.target.value}))}><option value="">— None —</option>{departments.filter(d=>d.active!==false).map(d=><option key={d.id} value={d.name}>{d.name}</option>)}</select></div><div className="fgrp"><label className="flbl">Line Manager</label><select className="fsel" value={newUser.manager||""} onChange={e=>setNewUser(u=>({...u,manager:Number(e.target.value)||null}))}><option value="">None</option>{mgrs.filter(m=>m.role!=="superadmin").map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></div></div><div className="md-footer"><button className="btn bo" onClick={()=>setShowAdd(false)}>Cancel</button><button className="btn bp" onClick={addUser}>Add</button></div></div></div>)}
       {editProj&&(<div className="mo" onClick={e=>e.target.className==="mo"&&setEditProj(null)}><div className="md"><div className="md-title">Edit Project</div><div className="fg"><div className="fgrp"><label className="flbl">Code</label><input className="fi" value={editProj.code} onChange={e=>setEditProj(p=>({...p,code:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Entity</label><select className="fsel" value={editProj.entityId||""} onChange={e=>setEditProj(p=>({...p,entityId:e.target.value?Number(e.target.value):null}))}><option value="">— none —</option>{entities.map(e=><option key={e.id} value={e.id}>{e.code} — {e.name}</option>)}</select></div><div className="fgrp ff"><label className="flbl">Name</label><input className="fi" value={editProj.name} onChange={e=>setEditProj(p=>({...p,name:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Department</label><select className="fsel" value={editProj.dept||""} onChange={e=>setEditProj(p=>({...p,dept:e.target.value}))}><option value="">— None —</option>{departments.filter(d=>d.active!==false).map(d=><option key={d.id} value={d.name}>{d.name}</option>)}</select></div><div className="fgrp"><label className="flbl">Color</label><CP value={editProj.color} onChange={c=>setEditProj(p=>({...p,color:c}))}/></div><div className="fgrp"><label className="flbl">Allowed For</label><div style={{display:"flex",gap:14,marginTop:6}}><label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={editProj.fieldAllowed} onChange={e=>setEditProj(p=>({...p,fieldAllowed:e.target.checked}))}/>Field</label><label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={editProj.officeAllowed} onChange={e=>setEditProj(p=>({...p,officeAllowed:e.target.checked}))}/>Office</label></div></div><div className="fgrp ff"><label className="flbl">Status</label><div style={{display:"flex",alignItems:"center",gap:10,marginTop:6}}><label className="sw"><input type="checkbox" checked={editProj.open} onChange={e=>setEditProj(p=>({...p,open:e.target.checked}))}/><span className="sldr"/></label><span style={{fontSize:13}}>{editProj.open?"Open":"Closed"}</span></div></div><div style={{display:"flex",flexDirection:"column",gap:4}}><label style={{fontSize:12,color:"var(--t3)"}}>Expiry Date</label><input type="date" className="fi" value={editProj.expiryDate||""} onChange={e=>setEditProj({...editProj,expiryDate:e.target.value||null})}/></div></div><div className="md-footer"><button className="btn bo" onClick={()=>setEditProj(null)}>Cancel</button><button className="btn bp" onClick={saveProj}>Save</button></div></div></div>)}
       {showAddProj&&(<div className="mo" onClick={e=>e.target.className==="mo"&&setShowAddProj(false)}><div className="md"><div className="md-title">Add New Project</div><div className="fg"><div className="fgrp"><label className="flbl">Code</label><input className="fi" placeholder="e.g. PROJ-001" value={newProj.code} onChange={e=>setNewProj(p=>({...p,code:e.target.value.toUpperCase()}))}/></div><div className="fgrp"><label className="flbl">Entity</label><select className="fsel" value={newProj.entityId||""} onChange={e=>setNewProj(p=>({...p,entityId:e.target.value?Number(e.target.value):null}))}><option value="">— none —</option>{entities.map(e=><option key={e.id} value={e.id}>{e.code} — {e.name}</option>)}</select></div><div className="fgrp ff"><label className="flbl">Name</label><input className="fi" placeholder="Full project name" value={newProj.name} onChange={e=>setNewProj(p=>({...p,name:e.target.value}))}/></div><div className="fgrp"><label className="flbl">Department</label><select className="fsel" value={newProj.dept||""} onChange={e=>setNewProj(p=>({...p,dept:e.target.value}))}><option value="">— None —</option>{departments.filter(d=>d.active!==false).map(d=><option key={d.id} value={d.name}>{d.name}</option>)}</select></div><div className="fgrp"><label className="flbl">Color</label><CP value={newProj.color} onChange={c=>setNewProj(p=>({...p,color:c}))}/></div><div className="fgrp"><label className="flbl">Allowed For</label><div style={{display:"flex",gap:14,marginTop:6}}><label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={newProj.fieldAllowed} onChange={e=>setNewProj(p=>({...p,fieldAllowed:e.target.checked}))}/>Field</label><label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={newProj.officeAllowed} onChange={e=>setNewProj(p=>({...p,officeAllowed:e.target.checked}))}/>Office</label></div></div><div style={{display:"flex",flexDirection:"column",gap:4}}><label style={{fontSize:12,color:"var(--t3)"}}>Expiry Date</label><input type="date" className="fi" value={newProj.expiryDate||""} onChange={e=>setNewProj({...newProj,expiryDate:e.target.value||null})}/></div></div><div className="md-footer"><button className="btn bo" onClick={()=>setShowAddProj(false)}>Cancel</button><button className="btn bp" onClick={addProj}>Add</button></div></div></div>)}
       {showAddRole&&(<div className="mo" onClick={e=>e.target.className==="mo"&&setShowAddRole(false)}><div className="md"><div className="md-title">Create New Role</div><div className="fg"><div className="fgrp"><label className="flbl">Role Key</label><input className="fi" placeholder="e.g. supervisor" value={newRole.key} onChange={e=>setNewRole(r=>({...r,key:e.target.value.toLowerCase().replace(/\s+/g,"_")}))}/></div><div className="fgrp"><label className="flbl">Display Label</label><input className="fi" placeholder="e.g. Supervisor" value={newRole.label} onChange={e=>setNewRole(r=>({...r,label:e.target.value}))}/></div><div className="fgrp ff"><label className="flbl">Badge Color</label><CP value={newRole.color} onChange={c=>setNewRole(r=>({...r,color:c}))}/></div><div className="fgrp ff"><label className="flbl">Permissions</label><div className="pgrid" style={{marginTop:6}}>{PERMISSIONS_LIST.map(p=>(<div className="pi" key={p.key}><div><div style={{fontSize:12,fontWeight:600,color:"var(--t)"}}>{p.label}</div><div className="pkey">{p.key}</div></div><label className="sw"><input type="checkbox" checked={newRole.permissions.includes(p.key)} onChange={()=>setNewRole(r=>({...r,permissions:togglePerm(r.permissions,p.key)}))}/><span className="sldr"/></label></div>))}</div></div></div><div style={{marginTop:10,padding:"9px 13px",background:"var(--s2)",borderRadius:"var(--rs)",fontSize:12}}>Preview: <RoleBadge role={newRole.key||"_"} roles={{[newRole.key||"_"]:{label:newRole.label||"New Role",color:newRole.color,bg:colorBg(newRole.color)}}}/></div><div className="md-footer"><button className="btn bo" onClick={()=>setShowAddRole(false)}>Cancel</button><button className="btn bp" onClick={addRole}>Create Role</button></div></div></div>)}
@@ -6603,7 +6662,8 @@ export default function App() {
           recoveryBalance: u.recovery_balance || 0,
           mustChangePwd: u.must_change_pwd,
           totpEnabled: u.totp_enabled || false,
-          allowOverlap: u.allow_overlap || false
+          allowOverlap: u.allow_overlap || false,
+          payrollId: u.payroll_id || ""
         })));
         
         setProjects(projectsData.map(p => ({

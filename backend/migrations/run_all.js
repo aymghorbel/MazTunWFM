@@ -17,6 +17,7 @@ const migrations = [
   'add_missing_columns.js',
   'drop_project_type.js',
   'add_departments_and_balances.js',
+  'add_payroll_id.js',
 ];
 
 const start = Date.now();

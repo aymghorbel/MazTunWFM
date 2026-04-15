@@ -228,7 +228,8 @@ export const rotationAPI = {
   getAll: () => fetchWithAuth('/rotation-plans'),
   create: (data) => fetchWithAuth('/rotation-plans', { method: 'POST', body: JSON.stringify(data) }),
   update: (id, data) => fetchWithAuth(`/rotation-plans/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  delete: (id) => fetchWithAuth(`/rotation-plans/${id}`, { method: 'DELETE' })
+  delete: (id) => fetchWithAuth(`/rotation-plans/${id}`, { method: 'DELETE' }),
+  importCSV: (rows) => fetchWithAuth('/rotation-plans/import', { method: 'POST', body: JSON.stringify({ rows }) })
 };
 
 // Activities API

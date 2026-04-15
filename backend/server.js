@@ -437,6 +437,7 @@ app.get('/api/users', authenticateToken, async (req, res) => {
     const result = await pool.query(`
       SELECT u.id, u.email, u.name, u.role, u.type, u.dept, u.manager_id, u.functional_manager_id, u.active,
              u.leave_balance, u.used_leave, u.recovery_balance, u.must_change_pwd, u.totp_enabled, u.allow_overlap,
+             u.payroll_id,
              m.name as manager_name,
              fm.name as functional_manager_name
       FROM users u
@@ -475,17 +476,17 @@ app.get('/api/users/:id', authenticateToken, async (req, res) => {
 // Create user (admin only)
 app.post('/api/users', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { email, name, role, type, dept, manager, functionalManager, leaveBalance, password } = req.body;
+    const { email, name, role, type, dept, manager, functionalManager, leaveBalance, password, payrollId } = req.body;
     if (!email || !name || !role) return res.status(400).json({ error: 'email, name, and role are required' });
 
     const plainPwd = password || 'Mazarine@Temp1!';
     const hashedPwd = await hashPassword(plainPwd);
 
     const result = await pool.query(
-      `INSERT INTO users (email, name, role, type, dept, manager_id, functional_manager_id, leave_balance, password, active, must_change_pwd)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, true)
-       RETURNING id, email, name, role, type, dept, manager_id, functional_manager_id, active, leave_balance`,
-      [email.toLowerCase().trim(), name.trim(), role, type, dept, manager || null, functionalManager || null, leaveBalance || 20, hashedPwd]
+      `INSERT INTO users (email, name, role, type, dept, manager_id, functional_manager_id, leave_balance, password, active, must_change_pwd, payroll_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, true, $10)
+       RETURNING id, email, name, role, type, dept, manager_id, functional_manager_id, active, leave_balance, payroll_id`,
+      [email.toLowerCase().trim(), name.trim(), role, type, dept, manager || null, functionalManager || null, leaveBalance || 20, hashedPwd, payrollId?.trim() || null]
     );
 
     logAudit(req.user.id, 'user_created', `Created user ${result.rows[0].name} (${result.rows[0].email})`, result.rows[0].id);
@@ -500,20 +501,22 @@ app.post('/api/users', authenticateToken, requireAdmin, async (req, res) => {
 // Update user (admin only)
 app.put('/api/users/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { name, role, type, dept, manager, functionalManager, leaveBalance, usedLeave, recoveryBalance, active, allowOverlap } = req.body;
+    const { name, role, type, dept, manager, functionalManager, leaveBalance, usedLeave, recoveryBalance, active, allowOverlap, payrollId } = req.body;
 
     // Fetch old values for balance-change audit trail
-    const oldRow = await pool.query('SELECT name, leave_balance, used_leave, recovery_balance FROM users WHERE id=$1', [req.params.id]);
+    const oldRow = await pool.query('SELECT name, leave_balance, used_leave, recovery_balance, payroll_id FROM users WHERE id=$1', [req.params.id]);
     const old = oldRow.rows[0];
 
     const result = await pool.query(
       `UPDATE users
        SET name = $1, role = $2, type = $3, dept = $4, manager_id = $5, functional_manager_id = $6,
-           leave_balance = $7, used_leave = $8, recovery_balance = $9, active = $10, allow_overlap = $11
-       WHERE id = $12
-       RETURNING id, email, name, role, type, dept, manager_id, functional_manager_id, active, leave_balance, used_leave, recovery_balance, allow_overlap`,
+           leave_balance = $7, used_leave = $8, recovery_balance = $9, active = $10, allow_overlap = $11,
+           payroll_id = $12
+       WHERE id = $13
+       RETURNING id, email, name, role, type, dept, manager_id, functional_manager_id, active, leave_balance, used_leave, recovery_balance, allow_overlap, payroll_id`,
       [name, role, type, dept, manager || null, functionalManager || null, leaveBalance, usedLeave,
-       recoveryBalance ?? old?.recovery_balance ?? 0, active, allowOverlap ?? false, req.params.id]
+       recoveryBalance ?? old?.recovery_balance ?? 0, active, allowOverlap ?? false,
+       payrollId?.trim() || old?.payroll_id || null, req.params.id]
     );
 
     if (result.rows.length === 0) {
@@ -2253,6 +2256,37 @@ async function rebuildFieldTimesheetForRotation(client, userId, affectedStart, a
     }
   }
 }
+
+// Bulk import rotations from CSV (matches by payroll_id)
+app.post('/api/rotation-plans/import', authenticateToken, requirePrivileged, async (req, res) => {
+  const { rows } = req.body || {};
+  if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ error: 'Provide a non-empty rows array' });
+  if (rows.length > 1000) return res.status(400).json({ error: 'Maximum 1000 rotations per import' });
+  const created = []; const errors = [];
+  const isoDate = s => /^\d{4}-\d{2}-\d{2}$/.test(String(s || '').trim());
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]; const rowNum = i + 1;
+    const payrollId = String(row.payroll_id || row.payrollId || '').trim();
+    const onStart = String(row.on_start || row.onStart || '').trim();
+    const onEnd   = String(row.on_end   || row.onEnd   || '').trim();
+    if (!payrollId) { errors.push({ row: rowNum, reason: 'payroll_id is required' }); continue; }
+    if (!isoDate(onStart)) { errors.push({ row: rowNum, payrollId, reason: 'on_start must be YYYY-MM-DD' }); continue; }
+    if (!isoDate(onEnd))   { errors.push({ row: rowNum, payrollId, reason: 'on_end must be YYYY-MM-DD' }); continue; }
+    if (new Date(onEnd) < new Date(onStart)) { errors.push({ row: rowNum, payrollId, reason: 'on_end must be on or after on_start' }); continue; }
+    try {
+      const u = await pool.query('SELECT id FROM users WHERE payroll_id=$1', [payrollId]);
+      if (!u.rows[0]) { errors.push({ row: rowNum, payrollId, reason: 'No user matches this payroll_id' }); continue; }
+      const r = await pool.query(
+        'INSERT INTO rotation_plans (user_id, on_start, on_end) VALUES ($1,$2,$3) RETURNING *',
+        [u.rows[0].id, onStart, onEnd]
+      );
+      created.push(r.rows[0]);
+    } catch (err) {
+      errors.push({ row: rowNum, payrollId, reason: err.message });
+    }
+  }
+  res.json({ created: created.length, errors });
+});
 
 app.get('/api/rotation-plans', authenticateToken, async (req, res) => {
   try {
