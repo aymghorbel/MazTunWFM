@@ -184,7 +184,12 @@ export const timesheetAPI = {
   reset: (userId, year, month) => fetchWithAuth('/timesheets/reset', {
     method: 'POST',
     body: JSON.stringify({ userId, year, month })
-  })
+  }),
+  getEntriesBulk: (start, end, userIds) => {
+    const qs = new URLSearchParams({ start, end });
+    if (userIds?.length) qs.set('userIds', userIds.join(','));
+    return fetchWithAuth(`/timesheets/entries/bulk?${qs.toString()}`);
+  },
 };
 
 // Payroll API

@@ -3769,7 +3769,7 @@ function LeaveBalancesView({users,setUsers,roles,user,balanceTypes=[],userBalanc
 }
 
 // ─── CREW ROTATION PLANNER (field employees, 6-month grid view) ──────────────
-function CrewPlannerView({user,users,requests=[],rotations=[],setRotationPlans,roles,canManage=false}) {
+function CrewPlannerView({user,users,requests=[],rotations=[],setRotationPlans,roles,canManage=false,activities=[]}) {
   const today=new Date();
   const [startMonth,setStartMonth]=useState(new Date(today.getFullYear(),today.getMonth(),1));
   const [deptFilter,setDeptFilter]=useState("");
@@ -3782,6 +3782,9 @@ function CrewPlannerView({user,users,requests=[],rotations=[],setRotationPlans,r
   const fieldUsers=useMemo(()=>users.filter(u=>u.type==="field"&&u.active!==false&&(!deptFilter||u.dept===deptFilter)).sort((a,b)=>(a.name||"").localeCompare(b.name||"")),[users,deptFilter]);
   const depts=useMemo(()=>[...new Set(users.filter(u=>u.type==="field"&&u.dept).map(u=>u.dept))].sort(),[users]);
 
+  // Leave activity names from the Activities table (source of truth)
+  const leaveActivityNames=useMemo(()=>new Set((activities||[]).filter(a=>a.isLeave).map(a=>a.name)),[activities]);
+
   // Build list of all dates in the visible window
   const dates=useMemo(()=>{
     const arr=[];
@@ -3791,6 +3794,27 @@ function CrewPlannerView({user,users,requests=[],rotations=[],setRotationPlans,r
     }
     return arr;
   },[startMonth,monthsToShow]);
+
+  // Bulk-fetch timesheet entries for visible users and window — the source of truth for ON/OFF
+  const [timesheetEntries,setTimesheetEntries]=useState([]);
+  useEffect(()=>{
+    if(fieldUsers.length===0||dates.length===0){setTimesheetEntries([]);return;}
+    const startIso=dates[0].toISOString().slice(0,10);
+    const endIso=dates[dates.length-1].toISOString().slice(0,10);
+    const ids=fieldUsers.map(u=>u.id);
+    timesheetAPI.getEntriesBulk(startIso,endIso,ids).then(rows=>setTimesheetEntries(rows||[])).catch(()=>setTimesheetEntries([]));
+  },[fieldUsers.map(u=>u.id).join(","),dates[0]?.toISOString().slice(0,10),dates[dates.length-1]?.toISOString().slice(0,10)]); // eslint-disable-line
+
+  // Index entries by user + date for O(1) lookup
+  const entryMap=useMemo(()=>{
+    const m={};
+    timesheetEntries.forEach(e=>{
+      const dsISO=typeof e.date==="string"?e.date.slice(0,10):new Date(e.date).toISOString().slice(0,10);
+      m[e.user_id]=m[e.user_id]||{};
+      m[e.user_id][dsISO]={activity:e.activity,locked:e.locked};
+    });
+    return m;
+  },[timesheetEntries]);
 
   // Index leave requests by user and date for fast lookup
   const leaveMap=useMemo(()=>{
@@ -3812,14 +3836,30 @@ function CrewPlannerView({user,users,requests=[],rotations=[],setRotationPlans,r
     const ds=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
     const isWeekend=d.getDay()===0||d.getDay()===6;
     const isHoliday=isHol(ds);
-    const leave=leaveMap[uid]?.[ds];
     const rot=getFieldDayType(uid,ds,rotations);
     const LEAVE_ONLY_ON=["Annual Leave","Sick Leave","Compassionate","Recovery Leave"];
+
+    // 1. Timesheet entry is the source of truth for ON/OFF
+    const entry=entryMap[uid]?.[ds];
+    if(entry){
+      const isLeaveAct=leaveActivityNames.has(entry.activity)||LEAVE_ONLY_ON.includes(entry.activity);
+      if(isLeaveAct){
+        const outOfRot=LEAVE_ONLY_ON.includes(entry.activity)&&rot!=="ON";
+        return {code:outOfRot?"leave-conflict":"leave",label:entry.activity+(outOfRot?" (off-rotation)":""),rot};
+      }
+      // Any non-leave activity recorded on the timesheet means the employee is working (ON)
+      return {code:"on",label:entry.activity||"ON",rot};
+    }
+
+    // 2. No timesheet entry — overlay pending leave requests (not yet on timesheet)
+    const leave=leaveMap[uid]?.[ds];
     if(leave){
       const outOfRot=LEAVE_ONLY_ON.includes(leave.type)&&rot!=="ON";
       const code=outOfRot?"leave-conflict":leave.status==="Approved"?"leave":"leave-pending";
       return {code,label:leave.type+(outOfRot?" (off-rotation)":""),rot};
     }
+
+    // 3. Fall back to rotation plan + calendar
     if(isHoliday) return {code:"hol",label:"Holiday",rot};
     if(isWeekend) return {code:"we",label:"Weekend",rot};
     return {code:rot.toLowerCase(),label:rot,rot};
@@ -7528,7 +7568,7 @@ export default function App() {
                 {view==="org-chart"  && <OrgChartView user={user} users={users} roles={roles}/>}
                 {view==="analytics"  && (hasAna||hasHR) && <AnalyticsReports user={user} requests={requests} users={users} projects={projects} roles={roles} tsStatuses={tsStatuses} activities={activities}/>}
                 {view==="approvals"  && canApp && <ApprovalsView user={user} requests={requests} setRequests={setRequests} users={users} setUsers={setUsers} roles={roles} tsStatuses={tsStatuses} setTsStatuses={setTsStatuses} timesheetData={timesheetData} setTimesheetData={setTimesheetData} projects={projects} activities={activities} rotations={rotationPlans}/>}
-                {view==="crew-planner"&& (isAd||hasHR||canApp) && <CrewPlannerView user={user} users={users} requests={requests} rotations={rotationPlans} setRotationPlans={setRotationPlans} roles={roles} canManage={isAd||hasHR}/>}
+                {view==="crew-planner"&& (isAd||hasHR||canApp) && <CrewPlannerView user={user} users={users} requests={requests} rotations={rotationPlans} setRotationPlans={setRotationPlans} roles={roles} canManage={isAd||hasHR} activities={activities}/>}
                 {view==="balances"   && (isAd||hasHR) && <LeaveBalancesView users={users} setUsers={setUsers} roles={roles} user={user} balanceTypes={balanceTypes} userBalances={userBalances} setUserBalances={setUserBalances}/>}
                 {view==="hr-report"  && hasHR  && <HRReport requests={requests} users={users} tsStatuses={tsStatuses} activities={activities}/>}
                 {view==="audit"      && (isAd||hasHR) && <AuditTrailView users={users}/>}

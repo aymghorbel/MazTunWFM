@@ -1404,6 +1404,24 @@ app.get('/api/timesheets', authenticateToken, async (req, res) => {
   }
 });
 
+// Bulk fetch timesheet entries for many users across a date range (for Crew Planner etc.)
+app.get('/api/timesheets/entries/bulk', authenticateToken, requirePrivileged, async (req, res) => {
+  try {
+    const { start, end, userIds } = req.query;
+    if (!start || !end) return res.status(400).json({ error: 'start and end dates required (YYYY-MM-DD)' });
+    const ids = (userIds || '').split(',').map(s => s.trim()).filter(Boolean).map(Number).filter(n => !Number.isNaN(n));
+    let q = `SELECT user_id, year, month, day, date, activity, locked FROM timesheet_entries WHERE date >= $1 AND date <= $2`;
+    const params = [start, end];
+    if (ids.length > 0) { q += ' AND user_id = ANY($3)'; params.push(ids); }
+    q += ' ORDER BY user_id, date';
+    const r = await pool.query(q, params);
+    res.json(r.rows);
+  } catch (err) {
+    console.error('Bulk timesheet entries error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Get all non-draft timesheet statuses (for manager approval queue)
 app.get('/api/timesheets/status/all', authenticateToken, async (req, res) => {
   try {
