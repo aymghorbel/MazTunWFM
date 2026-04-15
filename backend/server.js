@@ -980,6 +980,42 @@ app.post('/api/requests', authenticateToken, async (req, res) => {
       }
     }
 
+    // ── Field staff: leave types are only allowed during ON rotation periods ──
+    const LEAVE_ONLY_ON = ['Annual Leave', 'Sick Leave', 'Compassionate', 'Recovery Leave'];
+    if (LEAVE_ONLY_ON.includes(type)) {
+      const submitterRow = await client.query('SELECT type FROM users WHERE id=$1', [userId]);
+      if (submitterRow.rows[0]?.type === 'field') {
+        const rotRes = await client.query('SELECT on_start, on_end FROM rotation_plans WHERE user_id=$1', [userId]);
+        const rots = rotRes.rows.map(r => ({ onStart: new Date(r.on_start), onEnd: new Date(r.on_end) }));
+        function isOn(date) {
+          // Matches getFieldDayType on the frontend
+          if (rots.length === 0) {
+            const diff = Math.floor((date - new Date('2025-01-01')) / 86400000);
+            return ((diff % 28) + 28) % 28 < 14;
+          }
+          for (const rot of rots) {
+            const onDays = Math.floor((rot.onEnd - rot.onStart) / 86400000) + 1;
+            const offEnd = new Date(rot.onEnd); offEnd.setDate(offEnd.getDate() + onDays);
+            if (date >= rot.onStart && date <= rot.onEnd) return true;
+            if (date > rot.onEnd && date <= offEnd) return false;
+          }
+          return false; // EXTRA
+        }
+        const startD = new Date(start);
+        const endD = new Date(end || start);
+        const offDays = [];
+        for (let d = new Date(startD); d <= endD; d.setDate(d.getDate() + 1)) {
+          const dow = d.getDay();
+          if (dow === 0 || dow === 6) continue; // skip weekends
+          if (!isOn(new Date(d))) offDays.push(d.toISOString().slice(0, 10));
+        }
+        if (offDays.length > 0) {
+          client.release();
+          return res.status(400).json({ error: `${type} can only be taken during your rotation. ${offDays.length} day(s) fall on OFF/EXTRA: ${offDays.slice(0, 3).join(', ')}${offDays.length > 3 ? '…' : ''}` });
+        }
+      }
+    }
+
     await client.query('BEGIN');
 
     // Deduct leave balance on submission (symmetric: restored on rejection/cancel)

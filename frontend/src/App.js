@@ -1479,9 +1479,13 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
                   const ac=actColorFn(e.activity);
                   const canExpand=!isLocked&&!isLeaveEntry&&!isPending;
                   const canSelect=!e.locked&&!isLocked&&!isPending;
+                  // Field rotation context: highlight approved/pending requests that land on OFF/EXTRA days
+                  const fieldRot=user.type==="field"?getFieldDayType(user.id,e.date,rotations):null;
+                  const outOfRotation=user.type==="field"&&(e.locked||isPending)&&isLeaveEntry&&fieldRot&&fieldRot!=="ON";
+                  const rowBg=outOfRotation?"#fee2e2":isPending?"var(--aml)":undefined;
                   return (
                     <>
-                      <tr key={e.id} className={isSel?"sel-row":""} style={{cursor:canExpand?"pointer":"default",opacity:isLocked?.85:1,background:isPending?"var(--aml)":undefined}}
+                      <tr key={e.id} className={isSel?"sel-row":""} style={{cursor:canExpand?"pointer":"default",opacity:isLocked?.85:1,background:rowBg}}
                         onClick={()=>{ if(canSelect){toggleSel(e.id);} else if(canExpand){toggleRow(e.id);} }}>
                         {!isLocked&&<td style={{paddingLeft:10}} onClick={ev=>ev.stopPropagation()}>
                           {canSelect&&<input type="checkbox" className="cb" checked={isSel} onChange={()=>toggleSel(e.id)}/>}
@@ -1489,9 +1493,12 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
                         <td style={{padding:"8px 6px",textAlign:"center"}} onClick={ev=>{ev.stopPropagation();canExpand&&toggleRow(e.id);}}>
                           {canExpand&&<span className={`exp-arrow${isOpen?" open":""}`}>▶</span>}
                         </td>
-                        <td style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,color:"#000"}}>{e.date}</td>
+                        <td style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,color:"#000"}}>
+                          {e.date}
+                          {outOfRotation&&<span title="Approved leave outside your rotation (OFF/EXTRA day)" style={{marginLeft:4,fontSize:11}}>⚠️</span>}
+                        </td>
                         <td style={{fontWeight:700}}>{DS[new Date(e.date).getDay()]}</td>
-                        {user.type==="field"&&<td><span className="badge bsk">ON</span></td>}
+                        {user.type==="field"&&<td><span className={`badge ${fieldRot==="ON"?"bsk":fieldRot==="EXTRA"?"bv":"bgr2"}`} style={{fontSize:10}}>{fieldRot||"—"}</span></td>}
                         <td onClick={ev=>ev.stopPropagation()}>
                           <span className="badge" style={{background:ac+"18",color:ac,border:`1px solid ${ac}30`}}>{e.activity}</span>
                         </td>
@@ -2196,7 +2203,7 @@ function ApprovalsView({user,requests,setRequests,users,setUsers,roles,tsStatuse
 }
 
 // ─── REQUESTS VIEW ────────────────────────────────────────────────────────────
-function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses,setTsStatuses,activities}) {
+function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses,setTsStatuses,activities,rotations=[]}) {
   const [tab,setTab]=useState("mine");
   const [mineFilter,setMineFilter]=useState("all");
   const [show,setShow]=useState(false);
@@ -2313,6 +2320,24 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
     // Zero-duration guard
     if(!isTempAuth&&!isDoc&&dc<=0){toast("Request duration must be greater than 0 days.");return;}
     if(!isTempAuth&&!isDoc&&dc>7&&user.type==="field"){toast("Max 7 days per request for field staff.");return;}
+    // Field team: leave types are ONLY allowed during rotation ON period
+    if(!isTempAuth&&!isDoc&&user.type==="field"){
+      const LEAVE_ONLY_ON=["Annual Leave","Sick Leave","Compassionate","Recovery Leave"];
+      if(LEAVE_ONLY_ON.includes(form.type)){
+        const offDays=[];
+        const s=new Date(form.start),e=new Date(endDate);
+        for(let d=new Date(s);d<=e;d.setDate(d.getDate()+1)){
+          const ds=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+          if(isWE(ds)||isHol(ds))continue; // skip weekends/holidays
+          const rotType=getFieldDayType(user.id,ds,rotations);
+          if(rotType!=="ON") offDays.push(ds);
+        }
+        if(offDays.length>0){
+          toast(`${form.type} can only be taken during your rotation (ON days). ${offDays.length} day(s) fall on OFF/EXTRA: ${offDays.slice(0,3).join(", ")}${offDays.length>3?"…":""}`);
+          return;
+        }
+      }
+    }
     // Issue 1: balance check before submission
     if(!isTempAuth&&!isDoc){
       const leaveBalTypes=["Annual Leave","Sick Leave","Compassionate"];
@@ -3789,7 +3814,12 @@ function CrewPlannerView({user,users,requests=[],rotations=[],setRotationPlans,r
     const isHoliday=isHol(ds);
     const leave=leaveMap[uid]?.[ds];
     const rot=getFieldDayType(uid,ds,rotations);
-    if(leave) return {code:leave.status==="Approved"?"leave":"leave-pending",label:leave.type,rot};
+    const LEAVE_ONLY_ON=["Annual Leave","Sick Leave","Compassionate","Recovery Leave"];
+    if(leave){
+      const outOfRot=LEAVE_ONLY_ON.includes(leave.type)&&rot!=="ON";
+      const code=outOfRot?"leave-conflict":leave.status==="Approved"?"leave":"leave-pending";
+      return {code,label:leave.type+(outOfRot?" (off-rotation)":""),rot};
+    }
     if(isHoliday) return {code:"hol",label:"Holiday",rot};
     if(isWeekend) return {code:"we",label:"Weekend",rot};
     return {code:rot.toLowerCase(),label:rot,rot};
@@ -3815,6 +3845,7 @@ function CrewPlannerView({user,users,requests=[],rotations=[],setRotationPlans,r
     extra:{bg:"#ede9fe",fg:"#5b21b6",lbl:"EXTRA"},
     leave:{bg:"#fef3c7",fg:"#92400e",lbl:"LV"},
     "leave-pending":{bg:"#fed7aa",fg:"#9a3412",lbl:"LV?"},
+    "leave-conflict":{bg:"#fecaca",fg:"#991b1b",lbl:"⚠LV"},
     we:{bg:"#f8fafc",fg:"#cbd5e1",lbl:""},
     hol:{bg:"#fee2e2",fg:"#991b1b",lbl:"PH"},
   };
@@ -3970,10 +4001,10 @@ function CrewPlannerView({user,users,requests=[],rotations=[],setRotationPlans,r
 
       {/* Legend */}
       <div style={{display:"flex",gap:10,marginBottom:10,flexWrap:"wrap",fontSize:11}}>
-        {Object.entries(COLORS_MAP).filter(([k])=>["on","off","extra","leave","leave-pending","hol"].includes(k)).map(([k,v])=>(
+        {Object.entries(COLORS_MAP).filter(([k])=>["on","off","extra","leave","leave-pending","leave-conflict","hol"].includes(k)).map(([k,v])=>(
           <div key={k} style={{display:"flex",alignItems:"center",gap:5}}>
             <span style={{display:"inline-block",width:20,height:14,background:v.bg,border:`1px solid ${v.fg}40`,borderRadius:3}}/>
-            <span style={{color:"var(--t3)"}}>{k==="on"?"On Site":k==="off"?"Off Rotation":k==="extra"?"Extra":k==="leave"?"Approved Leave":k==="leave-pending"?"Pending Leave":"Holiday"}</span>
+            <span style={{color:"var(--t3)"}}>{k==="on"?"On Site":k==="off"?"Off Rotation":k==="extra"?"Extra":k==="leave"?"Approved Leave":k==="leave-pending"?"Pending Leave":k==="leave-conflict"?"Leave on OFF (conflict)":"Holiday"}</span>
           </div>
         ))}
       </div>
@@ -7441,7 +7472,7 @@ export default function App() {
                 {view==="schedule"   && <ScheduleView user={user} rotations={rotationPlans} users={users} rotationPlans={rotationPlans} setRotationPlans={setRotationPlans} canManage={isAd||hasHR}/>}
                 {view==="erp_rota"   && <ERPDutyRotaView user={user} users={users} roles={roles} requests={requests}/>}
                 {view==="timesheet"  && <TimesheetView user={user} projects={projects} timesheetData={timesheetData} setTimesheetData={setTimesheetData} tsStatuses={tsStatuses} setTsStatuses={setTsStatuses} activities={activities} rotations={rotationPlans} requests={requests}/>}
-                {view==="requests"   && <RequestsView  user={user} requests={requests} setRequests={setRequests} users={users} roles={roles} setUsers={setUsers} tsStatuses={tsStatuses} setTsStatuses={setTsStatuses} activities={activities}/>}
+                {view==="requests"   && <RequestsView  user={user} requests={requests} setRequests={setRequests} users={users} roles={roles} setUsers={setUsers} tsStatuses={tsStatuses} setTsStatuses={setTsStatuses} activities={activities} rotations={rotationPlans}/>}
                 {view==="org-chart"  && <OrgChartView user={user} users={users} roles={roles}/>}
                 {view==="analytics"  && (hasAna||hasHR) && <AnalyticsReports user={user} requests={requests} users={users} projects={projects} roles={roles} tsStatuses={tsStatuses} activities={activities}/>}
                 {view==="approvals"  && canApp && <ApprovalsView user={user} requests={requests} setRequests={setRequests} users={users} setUsers={setUsers} roles={roles} tsStatuses={tsStatuses} setTsStatuses={setTsStatuses} timesheetData={timesheetData} setTimesheetData={setTimesheetData} projects={projects} activities={activities} rotations={rotationPlans}/>}
