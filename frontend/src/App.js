@@ -4036,43 +4036,98 @@ function CrewPlannerView({user,users,requests=[],rotations=[],setRotationPlans,r
       {/* ── Manage Rotations Modal ── */}
       {manageModal&&(()=>{
         const urots=userRotations(manageModal.id);
+        const toISO=d=>{ if(!d) return ""; if(typeof d==="string") return d.slice(0,10); try{return new Date(d).toISOString().slice(0,10);}catch{return String(d);} };
+        const todayIso=today.toISOString().slice(0,10);
         return(
         <div className="mo" onClick={e=>e.target.className==="mo"&&(setManageModal(null),setRotForm({onStart:"",onEnd:"",editId:null}))}>
-          <div className="md" style={{maxWidth:540,width:"95vw",maxHeight:"85vh",overflowY:"auto"}}>
-            <div className="md-title">Manage Rotations — {manageModal.name}</div>
-            <div className="fg">
-              {/* Existing rotations list */}
-              <div>
-                <div style={{fontSize:12,fontWeight:700,marginBottom:6}}>Existing Rotations ({urots.length})</div>
-                {urots.length===0&&<div style={{fontSize:12,color:"var(--t3)",padding:"10px 12px",background:"var(--s2)",borderRadius:"var(--rs)",fontStyle:"italic"}}>No rotations yet — using default 14/14 cycle from 2025-01-01.</div>}
-                {urots.map(r=>{
-                  const toISO=d=>{ if(!d) return ""; if(typeof d==="string") return d.slice(0,10); try{return new Date(d).toISOString().slice(0,10);}catch{return String(d);} };
-                  const onStart=toISO(r.onStart);
-                  const onEnd=toISO(r.onEnd);
-                  const onDays=onStart&&onEnd?Math.floor((new Date(onEnd)-new Date(onStart))/86400000)+1:0;
-                  return(
-                    <div key={r.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",background:"var(--s2)",borderRadius:"var(--rs)",marginBottom:4,fontSize:12,fontFamily:"'JetBrains Mono',monospace"}}>
-                      <span style={{background:"#dcfce7",color:"#166534",padding:"2px 6px",borderRadius:3,fontWeight:700,fontSize:10}}>ON</span>
-                      <span style={{fontWeight:600}}>{onStart} → {onEnd}</span>
-                      <span style={{color:"var(--t3)"}}>({onDays}d)</span>
-                      <div style={{flex:1}}/>
-                      <button className="btn bo bxs" onClick={()=>startEditRotation(r)}>Edit</button>
-                      <button className="btn bd bxs" onClick={()=>deleteRotation(r.id)}>🗑</button>
-                    </div>
-                  );
-                })}
+          <div className="md" style={{maxWidth:760,width:"95vw",maxHeight:"90vh",overflowY:"auto",padding:0}}>
+            {/* Employee header */}
+            <div style={{padding:"16px 20px",borderBottom:"1px solid var(--b)",display:"flex",alignItems:"center",gap:12,background:"var(--s2)"}}>
+              <div className="av" style={{background:aColor(manageModal.id),width:42,height:42,fontSize:14,borderRadius:8}}>{initials(manageModal.name)}</div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:16,fontWeight:700}}>{manageModal.name}</div>
+                <div style={{fontSize:12,color:"var(--t3)",display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginTop:2}}>
+                  {manageModal.payrollId&&<span style={{fontFamily:"'JetBrains Mono',monospace",background:"var(--vl)",color:"var(--v)",padding:"1px 6px",borderRadius:3,fontWeight:600}}>#{manageModal.payrollId}</span>}
+                  <span>{manageModal.dept||"—"}</span>
+                  <span>·</span>
+                  <span className="badge bsk" style={{fontSize:10}}>Field</span>
+                </div>
               </div>
+              <button className="btn bo bsm" onClick={()=>{setManageModal(null);setRotForm({onStart:"",onEnd:"",editId:null});}}>✕ Close</button>
+            </div>
+
+            <div style={{padding:"16px 20px"}}>
+              {/* Rotation list */}
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+                <div style={{fontSize:13,fontWeight:700}}>Rotation Plans</div>
+                <span className="badge bgr2" style={{fontSize:10}}>{urots.length} defined</span>
+              </div>
+              {urots.length===0?
+                <div style={{fontSize:12,color:"var(--t3)",padding:"16px",background:"var(--s2)",borderRadius:"var(--rs)",textAlign:"center",fontStyle:"italic",marginBottom:14}}>
+                  No rotations defined yet — using the default 14/14 cycle from 2025-01-01.
+                </div>
+              :
+                <div className="tw" style={{marginBottom:14}}>
+                  <table className="tbl" style={{fontSize:12}}>
+                    <thead><tr>
+                      <th style={{width:40,textAlign:"center"}}>#</th>
+                      <th>ON Start</th>
+                      <th>ON End</th>
+                      <th style={{textAlign:"center"}}>Days</th>
+                      <th>OFF Period</th>
+                      <th style={{textAlign:"right",width:120}}>Actions</th>
+                    </tr></thead>
+                    <tbody>
+                      {urots.map((r,idx)=>{
+                        const onStart=toISO(r.onStart);
+                        const onEnd=toISO(r.onEnd);
+                        const onDays=onStart&&onEnd?Math.floor((new Date(onEnd)-new Date(onStart))/86400000)+1:0;
+                        const offStart=new Date(onEnd);offStart.setDate(offStart.getDate()+1);
+                        const offEnd=new Date(onEnd);offEnd.setDate(offEnd.getDate()+onDays);
+                        const offStartStr=offStart.toISOString().slice(0,10);
+                        const offEndStr=offEnd.toISOString().slice(0,10);
+                        const isCurrent=todayIso>=onStart&&todayIso<=offEndStr;
+                        const isPast=todayIso>offEndStr;
+                        const rowBg=isCurrent?"var(--vl)":isPast?"transparent":"transparent";
+                        return(
+                          <tr key={r.id} style={{background:rowBg}}>
+                            <td style={{textAlign:"center",fontFamily:"'JetBrains Mono',monospace",color:"var(--t3)",fontSize:11}}>{idx+1}</td>
+                            <td style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:600}}>
+                              {isCurrent&&<span style={{background:"#dcfce7",color:"#166534",padding:"1px 5px",borderRadius:3,fontSize:9,fontWeight:700,marginRight:6}}>NOW</span>}
+                              {onStart}
+                            </td>
+                            <td style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:600}}>{onEnd}</td>
+                            <td style={{textAlign:"center",fontWeight:700,color:"#166534"}}>{onDays}d</td>
+                            <td style={{fontSize:11,color:"var(--t3)",fontFamily:"'JetBrains Mono',monospace"}}>
+                              {offStartStr} → {offEndStr}
+                            </td>
+                            <td style={{textAlign:"right"}}>
+                              <div style={{display:"flex",gap:4,justifyContent:"flex-end"}}>
+                                <button className="btn bo bxs" onClick={()=>startEditRotation(r)}>Edit</button>
+                                <button className="btn bd bxs" onClick={()=>deleteRotation(r.id)}>🗑</button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              }
 
               {/* Add / Edit form */}
-              <div style={{marginTop:14,padding:"12px",background:"var(--vl)",borderRadius:"var(--rs)",border:"1px solid var(--v)"}}>
-                <div style={{fontSize:12,fontWeight:700,marginBottom:8,color:"var(--v)"}}>{rotForm.editId?"Edit Rotation":"Add New Rotation"}</div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                  <div className="fgrp" style={{margin:0}}>
-                    <label className="flbl">ON Start</label>
+              <div style={{padding:"14px 16px",background:rotForm.editId?"var(--aml)":"var(--vl)",borderRadius:"var(--rs)",border:`1px solid ${rotForm.editId?"var(--am)":"var(--v)"}`}}>
+                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}>
+                  <span style={{fontSize:14}}>{rotForm.editId?"✏️":"➕"}</span>
+                  <div style={{fontSize:13,fontWeight:700,color:rotForm.editId?"var(--am)":"var(--v)"}}>{rotForm.editId?`Editing rotation #${urots.findIndex(r=>r.id===rotForm.editId)+1}`:"Add New Rotation"}</div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,alignItems:"end"}}>
+                  <div>
+                    <label style={{fontSize:11,fontWeight:600,color:"var(--t2)",display:"block",marginBottom:4}}>ON Start Date</label>
                     <input type="date" className="fi" value={rotForm.onStart} onChange={e=>setRotForm(f=>({...f,onStart:e.target.value}))}/>
                   </div>
-                  <div className="fgrp" style={{margin:0}}>
-                    <label className="flbl">ON End</label>
+                  <div>
+                    <label style={{fontSize:11,fontWeight:600,color:"var(--t2)",display:"block",marginBottom:4}}>ON End Date</label>
                     <input type="date" className="fi" value={rotForm.onEnd} onChange={e=>setRotForm(f=>({...f,onEnd:e.target.value}))}/>
                   </div>
                 </div>
@@ -4081,19 +4136,18 @@ function CrewPlannerView({user,users,requests=[],rotations=[],setRotationPlans,r
                   const offStart=new Date(rotForm.onEnd);offStart.setDate(offStart.getDate()+1);
                   const offEnd=new Date(rotForm.onEnd);offEnd.setDate(offEnd.getDate()+onDays);
                   return(
-                    <div style={{marginTop:8,fontSize:11,color:"var(--t3)"}}>
-                      Preview: <b>{onDays}/{onDays}</b> cycle · OFF period: {offStart.toISOString().slice(0,10)} → {offEnd.toISOString().slice(0,10)}
+                    <div style={{marginTop:10,padding:"8px 12px",background:"var(--surface)",borderRadius:"var(--rs)",fontSize:11,color:"var(--t2)",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                      <span style={{fontWeight:700}}>Preview:</span>
+                      <span className="badge" style={{background:"#dcfce7",color:"#166534",fontSize:10}}>{onDays}/{onDays} cycle</span>
+                      <span style={{color:"var(--t3)"}}>OFF: {offStart.toISOString().slice(0,10)} → {offEnd.toISOString().slice(0,10)}</span>
                     </div>
                   );
                 })()}
-                <div style={{display:"flex",gap:6,marginTop:10,justifyContent:"flex-end"}}>
+                <div style={{display:"flex",gap:6,marginTop:12,justifyContent:"flex-end"}}>
                   {rotForm.editId&&<button className="btn bo bsm" onClick={()=>setRotForm({onStart:"",onEnd:"",editId:null})}>Cancel Edit</button>}
-                  <button className="btn bp bsm" onClick={saveRotation} disabled={saving||!rotForm.onStart||!rotForm.onEnd}>{saving?"...":rotForm.editId?"Save Changes":"+ Add Rotation"}</button>
+                  <button className="btn bp bsm" onClick={saveRotation} disabled={saving||!rotForm.onStart||!rotForm.onEnd}>{saving?"Saving…":rotForm.editId?"💾 Save Changes":"➕ Add Rotation"}</button>
                 </div>
               </div>
-            </div>
-            <div className="md-footer">
-              <button className="btn bo" onClick={()=>{setManageModal(null);setRotForm({onStart:"",onEnd:"",editId:null});}}>Close</button>
             </div>
           </div>
         </div>
