@@ -4922,36 +4922,36 @@ function AllocationReport() {
         function deptTotal(dept){
           return ytdRows.filter(r=>r.dept===dept).reduce((s,r)=>s+Number(r.total_hours||0),0);
         }
+        // Percentage = share of this employee's YTD working time on this project
+        function pct(hours,userId){
+          const tot=userTotal(userId);
+          return tot>0?(Number(hours)/tot)*100:0;
+        }
 
         function exportYtd(){
-          const header=["Employee","Payroll ID","Department","Staff Type","Project Code","Project Name","Entity","Days","Total Alloc","Total Hours","Months Covered"];
+          const header=["Employee","Payroll ID","Department","Staff Type","Project Code","Project Name","Entity","Days","Alloc %","Months Covered"];
           const rows=[header];
           ytdRows.forEach(r=>rows.push([
             r.user_name,r.payroll_id||"",r.dept||"",r.user_type||"",r.project_code,r.project_name,r.entity_code||"",
-            r.days_count,r.total_alloc,r.total_hours,
+            r.days_count,Number(pct(r.total_hours,r.user_id).toFixed(1)),
             `${MN[(r.first_month||1)-1]}–${MN[(r.last_month||1)-1]}`
           ]));
           rows.push([]);
-          rows.push(["TOTAL","","","","","","",grandDays,"",grandHours.toFixed(1),""]);
+          rows.push(["TOTAL","","","","","","",grandDays,"",""]);
           downloadXLSX(rows,`allocation-ytd-${ytdYear}-${ytdDept||"all"}`);
         }
 
         function exportMatrix(){
-          // Rows: employees, Columns: projects, Cells: hours
-          const header=["Employee","Payroll ID","Department",...ytdProjects.map(p=>p.code),"TOTAL"];
+          // Rows: employees, Columns: projects, Cells: % of employee YTD time
+          const header=["Employee","Payroll ID","Department",...ytdProjects.map(p=>p.code),"TOTAL %"];
           const rows=[header];
           ytdEmployees.forEach(u=>{
             const row=[u.name,u.payrollId||"",u.dept||""];
             let rowTot=0;
-            ytdProjects.forEach(p=>{const c=cell(u.id,p.id);const h=c?c.hours:0;rowTot+=h;row.push(h||"");});
-            row.push(rowTot.toFixed(1));
+            ytdProjects.forEach(p=>{const c=cell(u.id,p.id);const p_=c?pct(c.hours,u.id):0;rowTot+=p_;row.push(p_?Number(p_.toFixed(1)):"");});
+            row.push(Number(rowTot.toFixed(0)));
             rows.push(row);
           });
-          const totalRow=["TOTAL","",""];
-          let gt=0;
-          ytdProjects.forEach(p=>{const pt=projTotal(p.id);gt+=pt;totalRow.push(pt.toFixed(1));});
-          totalRow.push(gt.toFixed(1));
-          rows.push(totalRow);
           downloadXLSX(rows,`allocation-ytd-matrix-${ytdYear}-${ytdDept||"all"}`);
         }
 
@@ -4995,7 +4995,7 @@ function AllocationReport() {
               <div className="sc"><div className="sa" style={{background:"var(--v)"}}/><div className="sl">Period</div><div className="sv" style={{color:"var(--v)",fontSize:15}}>Jan → {MN[ytdEndMonth-1]} {ytdYear}</div><div className="sc2 neu">{ytdEndMonth} month{ytdEndMonth!==1?"s":""}</div></div>
               <div className="sc"><div className="sa" style={{background:"var(--sk)"}}/><div className="sl">Employees</div><div className="sv" style={{color:"var(--sk)"}}>{ytdEmployees.length}</div><div className="sc2 neu">{ytdDept?`in ${ytdDept}`:"across all depts"}</div></div>
               <div className="sc"><div className="sa" style={{background:"var(--gr)"}}/><div className="sl">Projects</div><div className="sv" style={{color:"var(--gr)"}}>{ytdProjects.length}</div><div className="sc2 neu">with allocations</div></div>
-              <div className="sc"><div className="sa" style={{background:"var(--am)"}}/><div className="sl">Total Hours</div><div className="sv" style={{color:"var(--am)"}}>{grandHours.toFixed(0)}</div><div className="sc2 neu">{grandDays} days</div></div>
+              <div className="sc"><div className="sa" style={{background:"var(--am)"}}/><div className="sl">Total Days</div><div className="sv" style={{color:"var(--am)"}}>{grandDays}</div><div className="sc2 neu">allocation entries</div></div>
             </div>
 
             {ytdLoading&&<div style={{padding:20,textAlign:"center",color:"var(--t3)",fontSize:13}}>Loading report…</div>}
@@ -5008,33 +5008,35 @@ function AllocationReport() {
                 <table className="tbl">
                   <thead><tr>
                     <th>Employee</th><th>Payroll ID</th><th>Department</th><th>Project</th><th>Entity</th>
-                    <th style={{textAlign:"center"}}>Days</th><th style={{textAlign:"right"}}>Hours</th>
+                    <th style={{textAlign:"center"}}>Days</th><th style={{textAlign:"right"}}>% Time</th>
                   </tr></thead>
                   <tbody>
                     {ytdEmployees.map(u=>{
                       const userRows=ytdRows.filter(r=>r.user_id===u.id);
-                      const uTot=userRows.reduce((s,r)=>s+Number(r.total_hours||0),0);
                       const uDays=userRows.reduce((s,r)=>s+Number(r.days_count||0),0);
                       return(
                         <React.Fragment key={u.id}>
-                          {userRows.map((r,idx)=>(
-                            <tr key={r.project_id+"-"+u.id}>
-                              {idx===0&&<td rowSpan={userRows.length+1} style={{fontWeight:600,verticalAlign:"top",borderRight:"1px solid var(--b)"}}>
-                                <div>{u.name}</div>
-                                <div style={{fontSize:10,color:"var(--t3)"}}>{u.type==="field"?"Field":"Office"}</div>
-                              </td>}
-                              {idx===0&&<td rowSpan={userRows.length+1} style={{verticalAlign:"top",fontFamily:"'JetBrains Mono',monospace",fontSize:11,color:"var(--t3)"}}>{u.payrollId||"—"}</td>}
-                              {idx===0&&<td rowSpan={userRows.length+1} style={{verticalAlign:"top"}}>{u.dept||"—"}</td>}
-                              <td><span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:11}}>{r.project_code}</span> <span style={{color:"var(--t3)",fontSize:11}}>{r.project_name}</span></td>
-                              <td>{r.entity_code?<span className="badge bgr2" style={{fontSize:10}}>{r.entity_code}</span>:"—"}</td>
-                              <td style={{textAlign:"center",fontWeight:600}}>{r.days_count}</td>
-                              <td style={{textAlign:"right",fontWeight:700,fontFamily:"'JetBrains Mono',monospace"}}>{Number(r.total_hours).toFixed(1)}</td>
-                            </tr>
-                          ))}
+                          {userRows.map((r,idx)=>{
+                            const p=pct(r.total_hours,u.id);
+                            return(
+                              <tr key={r.project_id+"-"+u.id}>
+                                {idx===0&&<td rowSpan={userRows.length+1} style={{fontWeight:600,verticalAlign:"top",borderRight:"1px solid var(--b)"}}>
+                                  <div>{u.name}</div>
+                                  <div style={{fontSize:10,color:"var(--t3)"}}>{u.type==="field"?"Field":"Office"}</div>
+                                </td>}
+                                {idx===0&&<td rowSpan={userRows.length+1} style={{verticalAlign:"top",fontFamily:"'JetBrains Mono',monospace",fontSize:11,color:"var(--t3)"}}>{u.payrollId||"—"}</td>}
+                                {idx===0&&<td rowSpan={userRows.length+1} style={{verticalAlign:"top"}}>{u.dept||"—"}</td>}
+                                <td><span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:11}}>{r.project_code}</span> <span style={{color:"var(--t3)",fontSize:11}}>{r.project_name}</span></td>
+                                <td>{r.entity_code?<span className="badge bgr2" style={{fontSize:10}}>{r.entity_code}</span>:"—"}</td>
+                                <td style={{textAlign:"center",fontWeight:600}}>{r.days_count}</td>
+                                <td style={{textAlign:"right",fontWeight:700,fontFamily:"'JetBrains Mono',monospace"}}>{p.toFixed(1)}%</td>
+                              </tr>
+                            );
+                          })}
                           <tr style={{background:"var(--vl)"}}>
                             <td colSpan={2} style={{textAlign:"right",fontWeight:700,fontStyle:"italic"}}>Subtotal:</td>
                             <td style={{textAlign:"center",fontWeight:700}}>{uDays}</td>
-                            <td style={{textAlign:"right",fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:"var(--v)"}}>{uTot.toFixed(1)}h</td>
+                            <td style={{textAlign:"right",fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:"var(--v)"}}>100%</td>
                           </tr>
                         </React.Fragment>
                       );
@@ -5050,32 +5052,34 @@ function AllocationReport() {
                 <table className="tbl">
                   <thead><tr>
                     <th>Project</th><th>Entity</th><th>Employee</th><th>Department</th>
-                    <th style={{textAlign:"center"}}>Days</th><th style={{textAlign:"right"}}>Hours</th>
+                    <th style={{textAlign:"center"}}>Days</th><th style={{textAlign:"right"}}>% of Employee Time</th>
                   </tr></thead>
                   <tbody>
                     {ytdProjects.map(p=>{
                       const projRows=ytdRows.filter(r=>r.project_id===p.id).sort((a,b)=>(a.user_name||"").localeCompare(b.user_name||""));
-                      const pt=projTotal(p.id);
                       const pd=projRows.reduce((s,r)=>s+Number(r.days_count||0),0);
                       return(
                         <React.Fragment key={p.id}>
-                          {projRows.map((r,idx)=>(
-                            <tr key={r.project_id+"-"+r.user_id}>
-                              {idx===0&&<td rowSpan={projRows.length+1} style={{fontWeight:600,verticalAlign:"top",borderRight:"1px solid var(--b)"}}>
-                                <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:12}}>{p.code}</div>
-                                <div style={{fontSize:10,color:"var(--t3)"}}>{p.name}</div>
-                              </td>}
-                              {idx===0&&<td rowSpan={projRows.length+1} style={{verticalAlign:"top"}}>{p.entityCode?<span className="badge bgr2" style={{fontSize:10}}>{p.entityCode}</span>:"—"}</td>}
-                              <td>{r.user_name}{r.payroll_id&&<span style={{fontSize:10,color:"var(--t3)",marginLeft:6,fontFamily:"'JetBrains Mono',monospace"}}>#{r.payroll_id}</span>}</td>
-                              <td>{r.dept||"—"}</td>
-                              <td style={{textAlign:"center",fontWeight:600}}>{r.days_count}</td>
-                              <td style={{textAlign:"right",fontWeight:700,fontFamily:"'JetBrains Mono',monospace"}}>{Number(r.total_hours).toFixed(1)}</td>
-                            </tr>
-                          ))}
+                          {projRows.map((r,idx)=>{
+                            const p_=pct(r.total_hours,r.user_id);
+                            return(
+                              <tr key={r.project_id+"-"+r.user_id}>
+                                {idx===0&&<td rowSpan={projRows.length+1} style={{fontWeight:600,verticalAlign:"top",borderRight:"1px solid var(--b)"}}>
+                                  <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:12}}>{p.code}</div>
+                                  <div style={{fontSize:10,color:"var(--t3)"}}>{p.name}</div>
+                                </td>}
+                                {idx===0&&<td rowSpan={projRows.length+1} style={{verticalAlign:"top"}}>{p.entityCode?<span className="badge bgr2" style={{fontSize:10}}>{p.entityCode}</span>:"—"}</td>}
+                                <td>{r.user_name}{r.payroll_id&&<span style={{fontSize:10,color:"var(--t3)",marginLeft:6,fontFamily:"'JetBrains Mono',monospace"}}>#{r.payroll_id}</span>}</td>
+                                <td>{r.dept||"—"}</td>
+                                <td style={{textAlign:"center",fontWeight:600}}>{r.days_count}</td>
+                                <td style={{textAlign:"right",fontWeight:700,fontFamily:"'JetBrains Mono',monospace"}}>{p_.toFixed(1)}%</td>
+                              </tr>
+                            );
+                          })}
                           <tr style={{background:"var(--vl)"}}>
-                            <td colSpan={3} style={{textAlign:"right",fontWeight:700,fontStyle:"italic"}}>Project Subtotal:</td>
+                            <td colSpan={4} style={{textAlign:"right",fontWeight:700,fontStyle:"italic"}}>Project Subtotal:</td>
                             <td style={{textAlign:"center",fontWeight:700}}>{pd}</td>
-                            <td style={{textAlign:"right",fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:"var(--v)"}}>{pt.toFixed(1)}h</td>
+                            <td/>
                           </tr>
                         </React.Fragment>
                       );
@@ -5091,29 +5095,31 @@ function AllocationReport() {
                 <table className="tbl">
                   <thead><tr>
                     <th>Department</th><th>Employee</th><th>Project</th><th>Entity</th>
-                    <th style={{textAlign:"center"}}>Days</th><th style={{textAlign:"right"}}>Hours</th>
+                    <th style={{textAlign:"center"}}>Days</th><th style={{textAlign:"right"}}>% of Employee Time</th>
                   </tr></thead>
                   <tbody>
                     {[...new Set(ytdRows.map(r=>r.dept||"— No Dept"))].sort().map(dept=>{
                       const dRows=ytdRows.filter(r=>(r.dept||"— No Dept")===dept).sort((a,b)=>(a.user_name||"").localeCompare(b.user_name||"")||(a.project_code||"").localeCompare(b.project_code||""));
-                      const dt=deptTotal(dept==="— No Dept"?null:dept)||dRows.reduce((s,r)=>s+Number(r.total_hours||0),0);
                       const dd=dRows.reduce((s,r)=>s+Number(r.days_count||0),0);
                       return(
                         <React.Fragment key={dept}>
-                          {dRows.map((r,idx)=>(
-                            <tr key={dept+"-"+r.user_id+"-"+r.project_id}>
-                              {idx===0&&<td rowSpan={dRows.length+1} style={{fontWeight:700,verticalAlign:"top",borderRight:"1px solid var(--b)",background:"var(--s2)"}}>{dept}</td>}
-                              <td>{r.user_name}</td>
-                              <td><span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:600}}>{r.project_code}</span> <span style={{color:"var(--t3)",fontSize:11}}>{r.project_name}</span></td>
-                              <td>{r.entity_code?<span className="badge bgr2" style={{fontSize:10}}>{r.entity_code}</span>:"—"}</td>
-                              <td style={{textAlign:"center",fontWeight:600}}>{r.days_count}</td>
-                              <td style={{textAlign:"right",fontWeight:700,fontFamily:"'JetBrains Mono',monospace"}}>{Number(r.total_hours).toFixed(1)}</td>
-                            </tr>
-                          ))}
+                          {dRows.map((r,idx)=>{
+                            const p_=pct(r.total_hours,r.user_id);
+                            return(
+                              <tr key={dept+"-"+r.user_id+"-"+r.project_id}>
+                                {idx===0&&<td rowSpan={dRows.length+1} style={{fontWeight:700,verticalAlign:"top",borderRight:"1px solid var(--b)",background:"var(--s2)"}}>{dept}</td>}
+                                <td>{r.user_name}</td>
+                                <td><span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:600}}>{r.project_code}</span> <span style={{color:"var(--t3)",fontSize:11}}>{r.project_name}</span></td>
+                                <td>{r.entity_code?<span className="badge bgr2" style={{fontSize:10}}>{r.entity_code}</span>:"—"}</td>
+                                <td style={{textAlign:"center",fontWeight:600}}>{r.days_count}</td>
+                                <td style={{textAlign:"right",fontWeight:700,fontFamily:"'JetBrains Mono',monospace"}}>{p_.toFixed(1)}%</td>
+                              </tr>
+                            );
+                          })}
                           <tr style={{background:"var(--vl)"}}>
-                            <td colSpan={3} style={{textAlign:"right",fontWeight:700,fontStyle:"italic"}}>Dept Subtotal:</td>
+                            <td colSpan={4} style={{textAlign:"right",fontWeight:700,fontStyle:"italic"}}>Dept Subtotal:</td>
                             <td style={{textAlign:"center",fontWeight:700}}>{dd}</td>
-                            <td style={{textAlign:"right",fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:"var(--v)"}}>{dt.toFixed(1)}h</td>
+                            <td/>
                           </tr>
                         </React.Fragment>
                       );
@@ -5135,7 +5141,6 @@ function AllocationReport() {
                   </tr></thead>
                   <tbody>
                     {ytdEmployees.map(u=>{
-                      const uTot=userTotal(u.id);
                       return(
                         <tr key={u.id}>
                           <td style={{position:"sticky",left:0,background:"var(--surface)",fontWeight:600,zIndex:1}}>
@@ -5145,19 +5150,23 @@ function AllocationReport() {
                           <td style={{fontSize:11}}>{u.dept||"—"}</td>
                           {ytdProjects.map(p=>{
                             const c=cell(u.id,p.id);
-                            return <td key={p.id} style={{textAlign:"center",fontFamily:"'JetBrains Mono',monospace",background:c?"var(--vl)":"transparent"}}>{c?c.hours.toFixed(1):""}</td>;
+                            const p_=c?pct(c.hours,u.id):0;
+                            return <td key={p.id} style={{textAlign:"center",fontFamily:"'JetBrains Mono',monospace",background:c?"var(--vl)":"transparent"}}>{c?p_.toFixed(1)+"%":""}</td>;
                           })}
-                          <td style={{textAlign:"right",fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:"var(--v)",background:"var(--s2)"}}>{uTot.toFixed(1)}</td>
+                          <td style={{textAlign:"right",fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:"var(--v)",background:"var(--s2)"}}>100%</td>
                         </tr>
                       );
                     })}
                   </tbody>
                   <tfoot>
                     <tr style={{background:"var(--s2)"}}>
-                      <td style={{position:"sticky",left:0,background:"var(--s2)",fontWeight:700,zIndex:1}}>Project Totals</td>
+                      <td style={{position:"sticky",left:0,background:"var(--s2)",fontWeight:700,zIndex:1}}>Project Share (of total)</td>
                       <td/>
-                      {ytdProjects.map(p=><td key={p.id} style={{textAlign:"center",fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:"var(--v)"}}>{projTotal(p.id).toFixed(1)}</td>)}
-                      <td style={{textAlign:"right",fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:"var(--v)"}}>{grandHours.toFixed(1)}</td>
+                      {ytdProjects.map(p=>{
+                        const pShare=grandHours>0?(projTotal(p.id)/grandHours)*100:0;
+                        return <td key={p.id} style={{textAlign:"center",fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:"var(--v)"}}>{pShare.toFixed(1)}%</td>;
+                      })}
+                      <td style={{textAlign:"right",fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:"var(--v)"}}>100%</td>
                     </tr>
                   </tfoot>
                 </table>
