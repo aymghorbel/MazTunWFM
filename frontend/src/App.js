@@ -5357,9 +5357,10 @@ function Settings({user,users,setUsers,projects,setProjects,roles,setRoles,activ
 
   function downloadTemplate(kind) {
     const data = kind==='users'
-      ? [['name','email','role','type','dept','manager_email','leave_balance'],
-         ['Jane Smith','jane.smith@mazarine.tn','employee','office','Operations','','20'],
-         ['Ali Ben','ali.ben@mazarine.tn','manager','field','Drilling','','20']]
+      ? [['payroll_id','name','email','role','type','dept','manager_email','leave_balance'],
+         ['EMP-0001','Jane Smith','jane.smith@mazarine.tn','employee','office','Operations','','20'],
+         ['EMP-0002','Ali Ben','ali.ben@mazarine.tn','manager','field','Drilling','','20'],
+         ['EMP-0003','Sara Haddad','sara.haddad@mazarine.tn','employee','field','Drilling','ali.ben@mazarine.tn','20']]
       : [['code','name','dept','color','field_allowed','office_allowed'],
          ['PRJ-001','Field Maintenance','Operations','#7c3aed','true','false'],
          ['PRJ-002','Office IT','IT','#0ea5e9','false','true']];

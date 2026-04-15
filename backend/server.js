@@ -761,6 +761,7 @@ app.post('/api/users/import', authenticateToken, requireAdmin, async (req, res) 
     const dept = (row.dept || '').trim();
     const leaveBalance = parseFloat(row.leave_balance) || 20;
     const managerEmail = (row.manager_email || '').toLowerCase().trim();
+    const payrollId = (row.payroll_id || '').trim();
 
     // Validate required fields
     if (!email) { errors.push({ row: rowNum, email: email || '(empty)', reason: 'Email is required' }); continue; }
@@ -774,10 +775,10 @@ app.post('/api/users/import', authenticateToken, requireAdmin, async (req, res) 
     try {
       const hashed = await hashPassword('Mazarine@Temp1!');
       const result = await pool.query(
-        `INSERT INTO users (email, name, role, type, dept, manager_id, leave_balance, password, active, must_change_pwd)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true,true)
-         RETURNING id, email, name, role, type, dept`,
-        [email, name, role, type, dept || null, managerId, leaveBalance, hashed]
+        `INSERT INTO users (email, name, role, type, dept, manager_id, leave_balance, password, active, must_change_pwd, payroll_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true,true,$9)
+         RETURNING id, email, name, role, type, dept, payroll_id`,
+        [email, name, role, type, dept || null, managerId, leaveBalance, hashed, payrollId || null]
       );
       emailToId[email] = result.rows[0].id; // make available for subsequent manager lookups
       created.push(result.rows[0]);
