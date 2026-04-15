@@ -3744,11 +3744,14 @@ function LeaveBalancesView({users,setUsers,roles,user,balanceTypes=[],userBalanc
 }
 
 // ─── CREW ROTATION PLANNER (field employees, 6-month grid view) ──────────────
-function CrewPlannerView({user,users,requests=[],rotations=[],roles}) {
+function CrewPlannerView({user,users,requests=[],rotations=[],setRotationPlans,roles,canManage=false}) {
   const today=new Date();
   const [startMonth,setStartMonth]=useState(new Date(today.getFullYear(),today.getMonth(),1));
   const [deptFilter,setDeptFilter]=useState("");
   const [monthsToShow,setMonthsToShow]=useState(6);
+  const [manageModal,setManageModal]=useState(null); // user object whose rotations are being edited
+  const [rotForm,setRotForm]=useState({onStart:"",onEnd:"",editId:null});
+  const [saving,setSaving]=useState(false);
 
   // Only field employees, filtered
   const fieldUsers=useMemo(()=>users.filter(u=>u.type==="field"&&u.active!==false&&(!deptFilter||u.dept===deptFilter)).sort((a,b)=>(a.name||"").localeCompare(b.name||"")),[users,deptFilter]);
@@ -3829,6 +3832,40 @@ function CrewPlannerView({user,users,requests=[],rotations=[],roles}) {
   function nextMonths(){const d=new Date(startMonth);d.setMonth(d.getMonth()+1);setStartMonth(d);}
   function goToday(){setStartMonth(new Date(today.getFullYear(),today.getMonth(),1));}
 
+  // Rotations for a specific user, sorted by start date
+  function userRotations(uid){
+    return rotations.filter(r=>r.userId===uid).sort((a,b)=>new Date(a.onStart)-new Date(b.onStart));
+  }
+
+  async function saveRotation(){
+    if(!rotForm.onStart||!rotForm.onEnd){toast("Both dates required.");return;}
+    if(new Date(rotForm.onEnd)<new Date(rotForm.onStart)){toast("End date must be on or after start date.");return;}
+    setSaving(true);
+    try{
+      if(rotForm.editId){
+        const r=await rotationAPI.update(rotForm.editId,{onStart:rotForm.onStart,onEnd:rotForm.onEnd});
+        setRotationPlans(p=>p.map(x=>x.id===rotForm.editId?{id:r.id,userId:r.user_id,onStart:r.on_start,onEnd:r.on_end}:x));
+      }else{
+        const r=await rotationAPI.create({userId:manageModal.id,onStart:rotForm.onStart,onEnd:rotForm.onEnd});
+        setRotationPlans(p=>[...p,{id:r.id,userId:r.user_id,onStart:r.on_start,onEnd:r.on_end}]);
+      }
+      setRotForm({onStart:"",onEnd:"",editId:null});
+    }catch(err){toast("Failed to save: "+err.message);}
+    setSaving(false);
+  }
+
+  async function deleteRotation(id){
+    if(!window.confirm("Delete this rotation plan?"))return;
+    try{
+      await rotationAPI.delete(id);
+      setRotationPlans(p=>p.filter(x=>x.id!==id));
+    }catch(err){toast("Failed to delete: "+err.message);}
+  }
+
+  function startEditRotation(r){
+    setRotForm({onStart:r.onStart?.slice(0,10)||r.onStart,onEnd:r.onEnd?.slice(0,10)||r.onEnd,editId:r.id});
+  }
+
   // Group dates by month for the header
   const monthHeaders=useMemo(()=>{
     const groups={};
@@ -3904,8 +3941,13 @@ function CrewPlannerView({user,users,requests=[],rotations=[],roles}) {
             {fieldUsers.map(u=>(
               <tr key={u.id}>
                 <td style={{position:"sticky",left:0,background:"var(--surface)",zIndex:1,padding:"3px 10px",border:"1px solid var(--b)",whiteSpace:"nowrap",fontFamily:"inherit"}}>
-                  <div style={{fontSize:12,fontWeight:600}}>{u.name}</div>
-                  <div style={{fontSize:10,color:"var(--t3)"}}>{u.dept||""}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:6,justifyContent:"space-between"}}>
+                    <div style={{minWidth:0}}>
+                      <div style={{fontSize:12,fontWeight:600}}>{u.name}</div>
+                      <div style={{fontSize:10,color:"var(--t3)"}}>{u.dept||""} · {userRotations(u.id).length} rot</div>
+                    </div>
+                    {canManage&&<button className="btn bo bxs" style={{fontSize:10,padding:"2px 6px"}} onClick={()=>{setManageModal(u);setRotForm({onStart:"",onEnd:"",editId:null});}}>✏️</button>}
+                  </div>
                 </td>
                 {dates.map((d,i)=>{
                   const st=getCellStatus(u.id,d);
@@ -3926,6 +3968,78 @@ function CrewPlannerView({user,users,requests=[],rotations=[],roles}) {
           </tfoot>
         </table>
       </div>
+
+      {/* ── Manage Rotations Modal ── */}
+      {manageModal&&(()=>{
+        const urots=userRotations(manageModal.id);
+        return(
+        <div className="mo" onClick={e=>e.target.className==="mo"&&(setManageModal(null),setRotForm({onStart:"",onEnd:"",editId:null}))}>
+          <div className="md" style={{maxWidth:540,width:"95vw",maxHeight:"85vh",overflowY:"auto"}}>
+            <div className="md-title">Manage Rotations — {manageModal.name}</div>
+            <div className="fg">
+              {/* Existing rotations list */}
+              <div>
+                <div style={{fontSize:12,fontWeight:700,marginBottom:6}}>Existing Rotations ({urots.length})</div>
+                {urots.length===0&&<div style={{fontSize:12,color:"var(--t3)",padding:"10px 12px",background:"var(--s2)",borderRadius:"var(--rs)",fontStyle:"italic"}}>No rotations yet — using default 14/14 cycle from 2025-01-01.</div>}
+                {urots.map(r=>{
+                  const onStart=r.onStart?.slice(0,10)||r.onStart;
+                  const onEnd=r.onEnd?.slice(0,10)||r.onEnd;
+                  const onDays=Math.floor((new Date(onEnd)-new Date(onStart))/86400000)+1;
+                  const offStart=new Date(onEnd);offStart.setDate(offStart.getDate()+1);
+                  const offEnd=new Date(onEnd);offEnd.setDate(offEnd.getDate()+onDays);
+                  return(
+                    <div key={r.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",background:"var(--s2)",borderRadius:"var(--rs)",marginBottom:6,fontSize:12}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontWeight:600}}>
+                          <span style={{color:"#166534"}}>ON</span> {onStart} → {onEnd} <span style={{color:"var(--t3)"}}>({onDays}d)</span>
+                        </div>
+                        <div style={{fontSize:11,color:"var(--t3)",marginTop:2}}>
+                          <span style={{color:"#64748b"}}>OFF</span> {offStart.toISOString().slice(0,10)} → {offEnd.toISOString().slice(0,10)} ({onDays}d)
+                        </div>
+                      </div>
+                      <button className="btn bo bxs" onClick={()=>startEditRotation(r)}>Edit</button>
+                      <button className="btn bd bxs" onClick={()=>deleteRotation(r.id)}>🗑</button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Add / Edit form */}
+              <div style={{marginTop:14,padding:"12px",background:"var(--vl)",borderRadius:"var(--rs)",border:"1px solid var(--v)"}}>
+                <div style={{fontSize:12,fontWeight:700,marginBottom:8,color:"var(--v)"}}>{rotForm.editId?"Edit Rotation":"Add New Rotation"}</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  <div className="fgrp" style={{margin:0}}>
+                    <label className="flbl">ON Start</label>
+                    <input type="date" className="fi" value={rotForm.onStart} onChange={e=>setRotForm(f=>({...f,onStart:e.target.value}))}/>
+                  </div>
+                  <div className="fgrp" style={{margin:0}}>
+                    <label className="flbl">ON End</label>
+                    <input type="date" className="fi" value={rotForm.onEnd} onChange={e=>setRotForm(f=>({...f,onEnd:e.target.value}))}/>
+                  </div>
+                </div>
+                {rotForm.onStart&&rotForm.onEnd&&new Date(rotForm.onEnd)>=new Date(rotForm.onStart)&&(()=>{
+                  const onDays=Math.floor((new Date(rotForm.onEnd)-new Date(rotForm.onStart))/86400000)+1;
+                  const offStart=new Date(rotForm.onEnd);offStart.setDate(offStart.getDate()+1);
+                  const offEnd=new Date(rotForm.onEnd);offEnd.setDate(offEnd.getDate()+onDays);
+                  return(
+                    <div style={{marginTop:8,fontSize:11,color:"var(--t3)"}}>
+                      Preview: <b>{onDays}/{onDays}</b> cycle · OFF period: {offStart.toISOString().slice(0,10)} → {offEnd.toISOString().slice(0,10)}
+                    </div>
+                  );
+                })()}
+                <div style={{display:"flex",gap:6,marginTop:10,justifyContent:"flex-end"}}>
+                  {rotForm.editId&&<button className="btn bo bsm" onClick={()=>setRotForm({onStart:"",onEnd:"",editId:null})}>Cancel Edit</button>}
+                  <button className="btn bp bsm" onClick={saveRotation} disabled={saving||!rotForm.onStart||!rotForm.onEnd}>{saving?"...":rotForm.editId?"Save Changes":"+ Add Rotation"}</button>
+                </div>
+              </div>
+            </div>
+            <div className="md-footer">
+              <button className="btn bo" onClick={()=>{setManageModal(null);setRotForm({onStart:"",onEnd:"",editId:null});}}>Close</button>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
     </div>
   );
 }
@@ -6926,7 +7040,7 @@ export default function App() {
                 {view==="org-chart"  && <OrgChartView user={user} users={users} roles={roles}/>}
                 {view==="analytics"  && (hasAna||hasHR) && <AnalyticsReports user={user} requests={requests} users={users} projects={projects} roles={roles} tsStatuses={tsStatuses} activities={activities}/>}
                 {view==="approvals"  && canApp && <ApprovalsView user={user} requests={requests} setRequests={setRequests} users={users} setUsers={setUsers} roles={roles} tsStatuses={tsStatuses} setTsStatuses={setTsStatuses} timesheetData={timesheetData} setTimesheetData={setTimesheetData} projects={projects} activities={activities} rotations={rotationPlans}/>}
-                {view==="crew-planner"&& (isAd||hasHR||canApp) && <CrewPlannerView user={user} users={users} requests={requests} rotations={rotationPlans} roles={roles}/>}
+                {view==="crew-planner"&& (isAd||hasHR||canApp) && <CrewPlannerView user={user} users={users} requests={requests} rotations={rotationPlans} setRotationPlans={setRotationPlans} roles={roles} canManage={isAd||hasHR}/>}
                 {view==="balances"   && (isAd||hasHR) && <LeaveBalancesView users={users} setUsers={setUsers} roles={roles} user={user} balanceTypes={balanceTypes} userBalances={userBalances} setUserBalances={setUserBalances}/>}
                 {view==="hr-report"  && hasHR  && <HRReport requests={requests} users={users} tsStatuses={tsStatuses} activities={activities}/>}
                 {view==="audit"      && (isAd||hasHR) && <AuditTrailView users={users}/>}
