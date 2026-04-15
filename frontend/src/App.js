@@ -3743,6 +3743,193 @@ function LeaveBalancesView({users,setUsers,roles,user,balanceTypes=[],userBalanc
   );
 }
 
+// ─── CREW ROTATION PLANNER (field employees, 6-month grid view) ──────────────
+function CrewPlannerView({user,users,requests=[],rotations=[],roles}) {
+  const today=new Date();
+  const [startMonth,setStartMonth]=useState(new Date(today.getFullYear(),today.getMonth(),1));
+  const [deptFilter,setDeptFilter]=useState("");
+  const [monthsToShow,setMonthsToShow]=useState(6);
+
+  // Only field employees, filtered
+  const fieldUsers=useMemo(()=>users.filter(u=>u.type==="field"&&u.active!==false&&(!deptFilter||u.dept===deptFilter)).sort((a,b)=>(a.name||"").localeCompare(b.name||"")),[users,deptFilter]);
+  const depts=useMemo(()=>[...new Set(users.filter(u=>u.type==="field"&&u.dept).map(u=>u.dept))].sort(),[users]);
+
+  // Build list of all dates in the visible window
+  const dates=useMemo(()=>{
+    const arr=[];
+    const end=new Date(startMonth);end.setMonth(end.getMonth()+monthsToShow);
+    for(let d=new Date(startMonth);d<end;d.setDate(d.getDate()+1)){
+      arr.push(new Date(d));
+    }
+    return arr;
+  },[startMonth,monthsToShow]);
+
+  // Index leave requests by user and date for fast lookup
+  const leaveMap=useMemo(()=>{
+    const m={};
+    const LEAVE_TYPES=["Annual Leave","Sick Leave","Compassionate","Recovery Leave","Remote Work","Mission","Training","Other Mission","Extra Days"];
+    requests.filter(r=>LEAVE_TYPES.includes(r.type)&&(r.status==="Approved"||r.status==="Pending"||r.status==="Pending L2")).forEach(r=>{
+      const s=new Date(r.start),e=new Date(r.end);
+      for(let d=new Date(s);d<=e;d.setDate(d.getDate()+1)){
+        const ds=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+        m[r.userId]=m[r.userId]||{};
+        if(!m[r.userId][ds]||r.status==="Approved") m[r.userId][ds]={type:r.type,status:r.status};
+      }
+    });
+    return m;
+  },[requests]);
+
+  // For each cell, determine status
+  function getCellStatus(uid,d){
+    const ds=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+    const isWeekend=d.getDay()===0||d.getDay()===6;
+    const isHoliday=isHol(ds);
+    const leave=leaveMap[uid]?.[ds];
+    const rot=getFieldDayType(uid,ds,rotations);
+    if(leave) return {code:leave.status==="Approved"?"leave":"leave-pending",label:leave.type,rot};
+    if(isHoliday) return {code:"hol",label:"Holiday",rot};
+    if(isWeekend) return {code:"we",label:"Weekend",rot};
+    return {code:rot.toLowerCase(),label:rot,rot};
+  }
+
+  // Daily on-site headcount (ON minus Leave)
+  const dailyCoverage=useMemo(()=>{
+    return dates.map(d=>{
+      let onSite=0,onLeave=0,pendingLeave=0;
+      fieldUsers.forEach(u=>{
+        const st=getCellStatus(u.id,d);
+        if(st.code==="on") onSite++;
+        else if(st.code==="leave"&&st.rot==="ON") onLeave++;
+        else if(st.code==="leave-pending"&&st.rot==="ON") pendingLeave++;
+      });
+      return {date:d,onSite,onLeave,pendingLeave};
+    });
+  },[dates,fieldUsers,leaveMap,rotations]);
+
+  const COLORS_MAP={
+    on:{bg:"#dcfce7",fg:"#166534",lbl:"ON"},
+    off:{bg:"#f1f5f9",fg:"#64748b",lbl:"OFF"},
+    extra:{bg:"#ede9fe",fg:"#5b21b6",lbl:"EXTRA"},
+    leave:{bg:"#fef3c7",fg:"#92400e",lbl:"LV"},
+    "leave-pending":{bg:"#fed7aa",fg:"#9a3412",lbl:"LV?"},
+    we:{bg:"#f8fafc",fg:"#cbd5e1",lbl:""},
+    hol:{bg:"#fee2e2",fg:"#991b1b",lbl:"PH"},
+  };
+
+  function exportCSV(){
+    const rows=[["Employee","Dept",...dates.map(d=>`${pad(d.getDate())}-${pad(d.getMonth()+1)}`)]];
+    fieldUsers.forEach(u=>{
+      rows.push([u.name,u.dept||"",...dates.map(d=>getCellStatus(u.id,d).label)]);
+    });
+    rows.push(["Coverage (On-Site)","",...dailyCoverage.map(c=>c.onSite)]);
+    downloadXLSX(rows,`crew-rotation-${startMonth.getFullYear()}-${pad(startMonth.getMonth()+1)}`);
+  }
+
+  function prevMonths(){const d=new Date(startMonth);d.setMonth(d.getMonth()-1);setStartMonth(d);}
+  function nextMonths(){const d=new Date(startMonth);d.setMonth(d.getMonth()+1);setStartMonth(d);}
+  function goToday(){setStartMonth(new Date(today.getFullYear(),today.getMonth(),1));}
+
+  // Group dates by month for the header
+  const monthHeaders=useMemo(()=>{
+    const groups={};
+    dates.forEach((d,idx)=>{
+      const key=`${d.getFullYear()}-${d.getMonth()}`;
+      if(!groups[key]) groups[key]={label:`${MONTHS[d.getMonth()]} ${d.getFullYear()}`,startIdx:idx,count:0};
+      groups[key].count++;
+    });
+    return Object.values(groups);
+  },[dates]);
+
+  return(
+    <div>
+      <div style={{padding:"10px 14px",background:"var(--vl)",borderRadius:"var(--rs)",border:"1px solid var(--v)",marginBottom:12,fontSize:12,lineHeight:1.4}}>
+        <strong>👷 Crew Rotation Planner</strong> — visual tool to coordinate field crew rotations, ensure site coverage, and plan annual leave windows. Shows ON/OFF cycles with approved (yellow) and pending (orange) leave overlaid.
+      </div>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,flexWrap:"wrap"}}>
+        <button className="btn bo bsm" onClick={prevMonths}>‹ Prev Month</button>
+        <button className="btn bo bsm" onClick={goToday}>Today</button>
+        <button className="btn bo bsm" onClick={nextMonths}>Next Month ›</button>
+        <span style={{fontSize:13,fontWeight:700,marginLeft:6}}>
+          {MONTHS[startMonth.getMonth()]} {startMonth.getFullYear()} — {MONTHS[(startMonth.getMonth()+monthsToShow-1)%12]} {startMonth.getFullYear()+Math.floor((startMonth.getMonth()+monthsToShow-1)/12)}
+        </span>
+        <div style={{flex:1}}/>
+        <label style={{fontSize:12,color:"var(--t3)"}}>Window:</label>
+        <select className="fi" value={monthsToShow} onChange={e=>setMonthsToShow(Number(e.target.value))} style={{width:90,padding:"4px 6px",fontSize:12}}>
+          <option value={3}>3 months</option>
+          <option value={6}>6 months</option>
+          <option value={9}>9 months</option>
+          <option value={12}>12 months</option>
+        </select>
+        <select className="fi" value={deptFilter} onChange={e=>setDeptFilter(e.target.value)} style={{maxWidth:160,fontSize:12}}>
+          <option value="">All Departments</option>
+          {depts.map(d=><option key={d} value={d}>{d}</option>)}
+        </select>
+        <button className="btn bp bsm" onClick={exportCSV}>📊 Export</button>
+      </div>
+
+      {/* Legend */}
+      <div style={{display:"flex",gap:10,marginBottom:10,flexWrap:"wrap",fontSize:11}}>
+        {Object.entries(COLORS_MAP).filter(([k])=>["on","off","extra","leave","leave-pending","hol"].includes(k)).map(([k,v])=>(
+          <div key={k} style={{display:"flex",alignItems:"center",gap:5}}>
+            <span style={{display:"inline-block",width:20,height:14,background:v.bg,border:`1px solid ${v.fg}40`,borderRadius:3}}/>
+            <span style={{color:"var(--t3)"}}>{k==="on"?"On Site":k==="off"?"Off Rotation":k==="extra"?"Extra":k==="leave"?"Approved Leave":k==="leave-pending"?"Pending Leave":"Holiday"}</span>
+          </div>
+        ))}
+      </div>
+
+      <div style={{overflow:"auto",border:"1px solid var(--b)",borderRadius:"var(--rs)",maxHeight:"70vh"}}>
+        <table style={{borderCollapse:"separate",borderSpacing:0,fontSize:10,fontFamily:"'JetBrains Mono',monospace",minWidth:"100%"}}>
+          <thead>
+            <tr style={{position:"sticky",top:0,zIndex:3,background:"var(--surface)"}}>
+              <th style={{position:"sticky",left:0,background:"var(--s2)",zIndex:4,padding:"6px 10px",border:"1px solid var(--b)",minWidth:160,textAlign:"left",fontSize:11}}>Employee</th>
+              {monthHeaders.map((mh,i)=>(
+                <th key={i} colSpan={mh.count} style={{padding:"6px 4px",border:"1px solid var(--b)",background:"var(--s2)",textAlign:"center",fontSize:11}}>{mh.label}</th>
+              ))}
+            </tr>
+            <tr style={{position:"sticky",top:28,zIndex:3,background:"var(--surface)"}}>
+              <th style={{position:"sticky",left:0,background:"var(--s2)",zIndex:4,padding:"4px 10px",border:"1px solid var(--b)",fontSize:10,fontWeight:400,color:"var(--t3)"}}>{fieldUsers.length} field employees</th>
+              {dates.map((d,i)=>{
+                const todayStr=today.toISOString().slice(0,10);
+                const ds=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+                const isToday=ds===todayStr;
+                const isWeekend=d.getDay()===0||d.getDay()===6;
+                return <th key={i} style={{padding:"2px 3px",border:"1px solid var(--b)",background:isToday?"var(--vl)":isWeekend?"#f8fafc":"var(--surface)",textAlign:"center",minWidth:22,fontWeight:isToday?700:400,color:isToday?"var(--v)":"var(--t3)"}}>
+                  <div style={{fontSize:9}}>{DS[d.getDay()][0]}</div>
+                  <div style={{fontSize:10}}>{d.getDate()}</div>
+                </th>;
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {fieldUsers.map(u=>(
+              <tr key={u.id}>
+                <td style={{position:"sticky",left:0,background:"var(--surface)",zIndex:1,padding:"3px 10px",border:"1px solid var(--b)",whiteSpace:"nowrap",fontFamily:"inherit"}}>
+                  <div style={{fontSize:12,fontWeight:600}}>{u.name}</div>
+                  <div style={{fontSize:10,color:"var(--t3)"}}>{u.dept||""}</div>
+                </td>
+                {dates.map((d,i)=>{
+                  const st=getCellStatus(u.id,d);
+                  const c=COLORS_MAP[st.code]||COLORS_MAP.we;
+                  return <td key={i} title={`${u.name} · ${d.toISOString().slice(0,10)} · ${st.label}`} style={{padding:0,border:"1px solid var(--b)",background:c.bg,color:c.fg,textAlign:"center",fontSize:9,fontWeight:600,minWidth:22,height:22}}>{c.lbl}</td>;
+                })}
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr style={{position:"sticky",bottom:0,background:"var(--s2)",zIndex:2}}>
+              <td style={{position:"sticky",left:0,background:"var(--s2)",zIndex:3,padding:"4px 10px",border:"1px solid var(--b)",fontSize:11,fontWeight:700}}>On-site Coverage</td>
+              {dailyCoverage.map((c,i)=>{
+                const low=c.onSite<2;
+                return <td key={i} title={`${c.onSite} on-site · ${c.onLeave} on leave · ${c.pendingLeave} pending leave`} style={{padding:"2px",border:"1px solid var(--b)",background:low?"#fee2e2":c.onSite>=4?"#dcfce7":"var(--surface)",color:low?"#991b1b":"var(--t)",textAlign:"center",fontSize:10,fontWeight:700,minWidth:22}}>{c.onSite}</td>;
+              })}
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ─── HR REPORT ────────────────────────────────────────────────────────────────
 function HRReport({users,tsStatuses,activities}) {
   const now=new Date();
@@ -6578,13 +6765,14 @@ export default function App() {
     {key:"org-chart",  label:"Org Chart",   ico:"🏢", show:!isSA},
     {key:"analytics",  label:"Analytics",   ico:"📊", show:(hasAna||hasHR)&&!isSA},
     {key:"approvals",  label:"Approvals",   ico:"✅", show:canApp&&!isSA, badge:totalBadge},
+    {key:"crew-planner",label:"Crew Planner",ico:"👷", show:(isAd||hasHR||canApp)&&!isSA},
     {key:"balances",   label:"Leave Balances",ico:"📊", show:(isAd||hasHR)&&!isSA},
     {key:"hr-report",  label:"HR Report",   ico:"📋", show:hasHR&&!isSA},
     {key:"audit",      label:"Audit Trail", ico:"📋", show:(isAd||hasHR)&&!isSA},
     {key:"settings",   label:"Settings",    ico:"⚙️", show:isAd},
   ].filter(n => n.show);
 
-  const TITLES = {dashboard:"Dashboard",schedule:"My Schedule",erp_rota:"ERP Duty Rota",timesheet:"Timesheet",requests:"My Requests","org-chart":"Organisation Chart",analytics:"Analytics & Reports",approvals:"Approvals",balances:"Leave Balances","hr-report":"HR Report",audit:"Audit Trail",settings:"Settings"};
+  const TITLES = {dashboard:"Dashboard",schedule:"My Schedule",erp_rota:"ERP Duty Rota",timesheet:"Timesheet",requests:"My Requests","org-chart":"Organisation Chart",analytics:"Analytics & Reports",approvals:"Approvals","crew-planner":"Crew Rotation Planner",balances:"Leave Balances","hr-report":"HR Report",audit:"Audit Trail",settings:"Settings"};
   const PAGE_META = {
     dashboard:   {desc:"Overview of your activity, leave balances, and key metrics",section:"Home"},
     schedule:    {desc:"Field rotation calendar with ON/OFF cycles and availability",section:"Operations"},
@@ -6594,6 +6782,7 @@ export default function App() {
     "org-chart": {desc:"Interactive organisation structure and reporting lines",section:"People"},
     analytics:   {desc:"Hours breakdown, project allocation, and workforce analytics",section:"Reports"},
     approvals:   {desc:"Review and approve pending timesheets and requests",section:"Management"},
+    "crew-planner":{desc:"Visual 6-month view of field crew rotations, site coverage, and leave planning",section:"Management"},
     balances:    {desc:"Manage employee annual leave, used days, and recovery balances",section:"Management"},
     "hr-report": {desc:"Payroll summaries, attendance, and compliance reports",section:"Reports"},
     audit:       {desc:"System activity log with user actions and change history",section:"Administration"},
@@ -6737,6 +6926,7 @@ export default function App() {
                 {view==="org-chart"  && <OrgChartView user={user} users={users} roles={roles}/>}
                 {view==="analytics"  && (hasAna||hasHR) && <AnalyticsReports user={user} requests={requests} users={users} projects={projects} roles={roles} tsStatuses={tsStatuses} activities={activities}/>}
                 {view==="approvals"  && canApp && <ApprovalsView user={user} requests={requests} setRequests={setRequests} users={users} setUsers={setUsers} roles={roles} tsStatuses={tsStatuses} setTsStatuses={setTsStatuses} timesheetData={timesheetData} setTimesheetData={setTimesheetData} projects={projects} activities={activities} rotations={rotationPlans}/>}
+                {view==="crew-planner"&& (isAd||hasHR||canApp) && <CrewPlannerView user={user} users={users} requests={requests} rotations={rotationPlans} roles={roles}/>}
                 {view==="balances"   && (isAd||hasHR) && <LeaveBalancesView users={users} setUsers={setUsers} roles={roles} user={user} balanceTypes={balanceTypes} userBalances={userBalances} setUserBalances={setUserBalances}/>}
                 {view==="hr-report"  && hasHR  && <HRReport requests={requests} users={users} tsStatuses={tsStatuses} activities={activities}/>}
                 {view==="audit"      && (isAd||hasHR) && <AuditTrailView users={users}/>}
