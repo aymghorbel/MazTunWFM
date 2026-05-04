@@ -154,6 +154,47 @@ function ToastContainer() {
   );
 }
 
+// ─── Icon component ───────────────────────────────────────────────────────────
+// Inline Lucide-style icons (stroke=1.5, currentColor). Tiny — no npm dep.
+const ICON_PATHS = {
+  dashboard:"M3 3h7v9H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 16h7v5H3z",
+  calendar:"M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z",
+  rotate:"M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5",
+  fileLines:"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8",
+  clipboard:"M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v0a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2z",
+  building:"M3 21h18M5 21V7l8-4v18M19 21V11l-6-4M9 9h.01M9 12h.01M9 15h.01M9 18h.01",
+  chart:"M3 3v18h18M7 14l4-4 4 4 5-5",
+  check:"M22 11.08V12a10 10 0 1 1-5.93-9.14M22 4 12 14.01l-3-3",
+  users:"M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M8.5 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75",
+  hardhat:"M2 18h20M4 18v-2a8 8 0 0 1 16 0v2M9 9V6a3 3 0 0 1 6 0v3",
+  scale:"M16 16l3-8 3 8c-2 1-4 1-6 0M2 16l3-8 3 8c-2 1-4 1-6 0M7 21h10M12 3v18M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2",
+  shield:"M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10",
+  cog:"M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z",
+  pencil:"M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4z",
+  trash:"M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6",
+  upload:"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12",
+  download:"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3",
+  plus:"M12 5v14M5 12h14",
+  x:"M18 6 6 18M6 6l12 12",
+  search:"M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35",
+  bell:"M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0",
+  logOut:"M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9",
+  key:"M15 7a4 4 0 1 1-7.61 1.7L2 14l3 3 3-3 3 3 5-5-1-1A4 4 0 0 1 15 7z",
+  unlock:"M5 11h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2zM7 11V7a5 5 0 0 1 9.9-1",
+  shieldCheck:"M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10M9 12l2 2 4-4",
+  layers:"m12 2 9 5-9 5-9-5 9-5zM3 17l9 5 9-5M3 12l9 5 9-5",
+  sliders:"M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6",
+};
+function Icon({name,size=18,color="currentColor",strokeWidth=1.5,style}) {
+  const d = ICON_PATHS[name];
+  if (!d) return <span style={{display:"inline-block",width:size,height:size,...style}}/>;
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" style={{display:"inline-block",flexShrink:0,...style}}>
+      <path d={d}/>
+    </svg>
+  );
+}
+
 // ─── CSS ──────────────────────────────────────────────────────────────────────
 // ── Theme definitions ─────────────────────────────────────────────────────────
 // Mazarine Energy — Liquid Glass design system (single theme)
@@ -392,6 +433,36 @@ input:checked+.sldr:before{transform:translateX(16px);}
 .md-footer{display:flex;gap:10px;margin-top:20px;justify-content:flex-end;}
 @keyframes fi{from{opacity:0}to{opacity:1}}
 @keyframes su{from{transform:translateY(14px);opacity:0}to{transform:translateY(0);opacity:1}}
+
+/* ─── Status badges — unified visual treatment ───────────────────────────── */
+.badge{font-family:"Aptos","Segoe UI",-apple-system,sans-serif !important;font-size:11px !important;font-weight:600 !important;letter-spacing:0 !important;text-transform:none !important;border-radius:4px !important;padding:3px 9px !important;border:1px solid transparent;line-height:1.4;}
+.badge.bgr{background:#E8F5E9;color:#107C10;border-color:#BFD9C0;}
+.badge.bam{background:#FFF3D1;color:#92400E;border-color:#FAD78A;}
+.badge.bgr2{background:#F4F5F9;color:#32364A;border-color:#E5E7EE;}
+.badge.bre{background:#FDE9EB;color:#B91C1C;border-color:#F5C2C7;}
+.badge.bv{background:#E7EAFB;color:#0F27A4;border-color:#C7CDF1;}
+.badge.bsk{background:#E7EAFB;color:#0F27A4;border-color:#C7CDF1;}
+.badge.bs{background:#E8F5E9;color:#107C10;border-color:#BFD9C0;}
+.badge.bd{background:#FDE9EB;color:#B91C1C;border-color:#F5C2C7;}
+.badge.bp{background:#0F27A4;color:#fff;border-color:#02178A;}
+.badge.bxs{padding:2px 7px !important;font-size:10px !important;}
+.badge.bsm{padding:3px 9px !important;font-size:11px !important;}
+
+/* ─── Compact density mode (toggled via profile menu) ────────────────────── */
+.density-compact .card{padding:12px 14px;}
+.density-compact .tbl td,.density-compact .tbl th{padding:5px 8px;font-size:12px;}
+.density-compact .btn{padding:5px 11px;font-size:12px;}
+.density-compact .btn.bsm{padding:4px 9px;font-size:11px;}
+.density-compact .btn.bxs{padding:2px 6px;font-size:10px;}
+.density-compact .fi,.density-compact .fsel,.density-compact .fta{padding:6px 10px;font-size:12px;}
+.density-compact .ni{padding:6px 9px;font-size:12px;}
+.density-compact .sc{padding:11px 13px !important;}
+.density-compact .sv{font-size:18px !important;}
+.density-compact .topbar{height:44px !important;}
+.density-compact .content{padding:14px 18px !important;}
+.density-compact .md{padding:18px;}
+.density-compact .rc{padding:8px 10px;}
+.density-compact .pi{padding:8px 10px;}
 .pgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
 .pi{display:flex;align-items:center;justify-content:space-between;padding:8px 11px;background:var(--s2);border-radius:var(--rs);}
 .pkey{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--t3);}
@@ -7104,6 +7175,11 @@ export default function App() {
   const [loading,       setLoading]       = useState(false);
   const [error,         setError]         = useState(null);
   const theme = "enterprise";
+  const [density,setDensity] = useState(() => localStorage.getItem("maz_density") || "comfortable");
+  useEffect(() => {
+    document.documentElement.classList.toggle("density-compact", density === "compact");
+    localStorage.setItem("maz_density", density);
+  }, [density]);
 
   // Apply theme CSS variables to document root
   useEffect(() => {
@@ -7428,19 +7504,19 @@ export default function App() {
   const totalBadge = pendReq + pendTS;
 
   const NAV = [
-    {key:"dashboard",  label:"Dashboard",   ico:"⊞",  show:true},
-    {key:"schedule",   label:"Schedule",    ico:"📅", show:!isSA&&user.type==="field"},
-    {key:"erp_rota",   label:"ERP Duty Rota",ico:"🔄", show:!isSA&&(isAd||hasPerm(roles,user.role,"erp_rota")), badge:daysUntilFriday()+"d"},
-    {key:"timesheet",  label:"Timesheet",   ico:"🗒", show:!isSA},
-    {key:"requests",   label:"Requests",    ico:"📋", show:!isSA, badge:requests.filter(r=>r.userId===user.id&&r.status==="Pending").length},
-    {key:"org-chart",  label:"Org Chart",   ico:"🏢", show:!isSA},
-    {key:"analytics",  label:"Analytics",   ico:"📊", show:(hasAna||hasHR)&&!isSA},
-    {key:"approvals",  label:"Approvals",   ico:"✅", show:canApp&&!isSA, badge:totalBadge},
-    {key:"crew-planner",label:"Crew Planner",ico:"👷", show:(isAd||hasHR||canApp)&&!isSA},
-    {key:"balances",   label:"Leave Balances",ico:"📊", show:(isAd||hasHR)&&!isSA},
-    {key:"hr-report",  label:"HR Report",   ico:"📋", show:hasHR&&!isSA},
-    {key:"audit",      label:"Audit Trail", ico:"📋", show:(isAd||hasHR)&&!isSA},
-    {key:"settings",   label:"Settings",    ico:"⚙️", show:isAd},
+    {key:"dashboard",  label:"Dashboard",   ico:"dashboard",  show:true},
+    {key:"schedule",   label:"Schedule",    ico:"calendar",   show:!isSA&&user.type==="field"},
+    {key:"erp_rota",   label:"ERP Duty Rota",ico:"shield",    show:!isSA&&(isAd||hasPerm(roles,user.role,"erp_rota")), badge:daysUntilFriday()+"d"},
+    {key:"timesheet",  label:"Timesheet",   ico:"fileLines",  show:!isSA},
+    {key:"requests",   label:"Requests",    ico:"clipboard",  show:!isSA, badge:requests.filter(r=>r.userId===user.id&&r.status==="Pending").length},
+    {key:"org-chart",  label:"Org Chart",   ico:"building",   show:!isSA},
+    {key:"analytics",  label:"Analytics",   ico:"chart",      show:(hasAna||hasHR)&&!isSA},
+    {key:"approvals",  label:"Approvals",   ico:"check",      show:canApp&&!isSA, badge:totalBadge},
+    {key:"crew-planner",label:"Crew Planner",ico:"hardhat",   show:(isAd||hasHR||canApp)&&!isSA},
+    {key:"balances",   label:"Leave Balances",ico:"scale",    show:(isAd||hasHR)&&!isSA},
+    {key:"hr-report",  label:"HR Report",   ico:"layers",     show:hasHR&&!isSA},
+    {key:"audit",      label:"Audit Trail", ico:"shieldCheck",show:(isAd||hasHR)&&!isSA},
+    {key:"settings",   label:"Settings",    ico:"cog",        show:isAd},
   ].filter(n => n.show);
 
   const TITLES = {dashboard:"Dashboard",schedule:"My Schedule",erp_rota:"ERP Duty Rota",timesheet:"Timesheet",requests:"My Requests","org-chart":"Organisation Chart",analytics:"Analytics & Reports",approvals:"Approvals","crew-planner":"Crew Rotation Planner",balances:"Leave Balances","hr-report":"HR Report",audit:"Audit Trail",settings:"Settings"};
@@ -7484,7 +7560,7 @@ export default function App() {
             <div className="nl">Navigation</div>
             {NAV.slice(0, isSA ? 2 : 5).map(n => (
               <div key={n.key} className={`ni${view===n.key?" active":""}`} onClick={()=>{setView(n.key);setSidebarOpen(false);}}>
-                <span className="ni-ico">{n.ico}</span>{n.label}
+                <span className="ni-ico"><Icon name={n.ico} size={17}/></span>{n.label}
                 {(n.badge||0)>0 && <span className="nbadge">{n.badge}</span>}
               </div>
             ))}
@@ -7493,7 +7569,7 @@ export default function App() {
                 <div className="nl" style={{marginTop:6}}>Management</div>
                 {NAV.slice(5).map(n => (
                   <div key={n.key} className={`ni${view===n.key?" active":""}`} onClick={()=>{setView(n.key);setSidebarOpen(false);}}>
-                    <span className="ni-ico">{n.ico}</span>{n.label}
+                    <span className="ni-ico"><Icon name={n.ico} size={17}/></span>{n.label}
                     {(n.badge||0)>0 && <span className="nbadge">{n.badge}</span>}
                   </div>
                 ))}
@@ -7552,18 +7628,27 @@ export default function App() {
                     </div>
                     <div className="profile-menu-sep"/>
                     <div className="profile-menu-item" onClick={()=>{setShowPwdModal(true);setProfileOpen(false);}}>
-                      🔐 Change Password
+                      <Icon name="key" size={15}/> Change Password
                     </div>
                     <div className="profile-menu-item" onClick={()=>{setShowTOTPModal(true);setProfileOpen(false);}}>
-                      🔒 Two-Factor Auth
+                      <Icon name="shieldCheck" size={15}/> Two-Factor Auth
                     </div>
                     {isAd && (
                       <div className="profile-menu-item" onClick={()=>{setView("settings");setProfileOpen(false);}}>
-                        ⚙️ Settings
+                        <Icon name="cog" size={15}/> Settings
                       </div>
                     )}
                     <div className="profile-menu-sep"/>
-                    <div className="profile-menu-item danger" onClick={handleLogout}>🚪 Sign Out</div>
+                    <div className="profile-menu-item" style={{display:"flex",alignItems:"center",gap:10}} onClick={(e)=>e.stopPropagation()}>
+                      <Icon name="sliders" size={15}/>
+                      <span style={{flex:1}}>Density</span>
+                      <div style={{display:"inline-flex",border:"1px solid var(--b)",borderRadius:6,overflow:"hidden",fontSize:11}}>
+                        <button onClick={()=>setDensity("comfortable")} style={{padding:"3px 8px",border:"none",cursor:"pointer",background:density==="comfortable"?"var(--v)":"transparent",color:density==="comfortable"?"#fff":"var(--t2)",fontWeight:600}}>Cozy</button>
+                        <button onClick={()=>setDensity("compact")} style={{padding:"3px 8px",border:"none",cursor:"pointer",background:density==="compact"?"var(--v)":"transparent",color:density==="compact"?"#fff":"var(--t2)",fontWeight:600}}>Compact</button>
+                      </div>
+                    </div>
+                    <div className="profile-menu-sep"/>
+                    <div className="profile-menu-item danger" onClick={handleLogout}><Icon name="logOut" size={15}/> Sign Out</div>
                   </div>
                 )}
               </div>
