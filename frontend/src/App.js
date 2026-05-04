@@ -1180,12 +1180,12 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
       const defaultDates=new Set(defaults.map(e=>e.date));
       const merged=defaults.map(e=>{
         const a=byDate[e.date];
-        if(a) return {id:a.id,day:a.day,date:a.date,activity:a.activity,locked:a.locked,hours:a.hours,allocations:a.allocations||[]};
+        if(a) return {id:a.id,day:a.day,date:a.date,activity:a.activity,locked:a.locked,hours:a.hours,allocations:a.allocations||[],dailyReport:a.daily_report||""};
         return e;
       });
       // Include locked entries (approved requests) on OFF/EXTRA days not in defaults
       const extraLocked=(data||[]).filter(e=>!defaultDates.has(e.date)&&e.locked)
-        .map(e=>({id:e.id,day:e.day,date:e.date,activity:e.activity,locked:e.locked,hours:e.hours,allocations:e.allocations||[]}));
+        .map(e=>({id:e.id,day:e.day,date:e.date,activity:e.activity,locked:e.locked,hours:e.hours,allocations:e.allocations||[],dailyReport:e.daily_report||""}));
       const all=[...merged,...extraLocked].sort((a,b)=>new Date(a.date)-new Date(b.date));
       setTimesheetData(prev=>({...prev,[key]:all}));
     }).catch(()=>{
@@ -1224,11 +1224,11 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
         const defaultDates=new Set(defaults.map(e=>e.date));
         const merged=defaults.map(e=>{
           const a=byDate[e.date];
-          if(a) return {id:a.id,day:a.day,date:a.date,activity:a.activity,locked:a.locked,hours:a.hours,allocations:a.allocations||[]};
+          if(a) return {id:a.id,day:a.day,date:a.date,activity:a.activity,locked:a.locked,hours:a.hours,allocations:a.allocations||[],dailyReport:a.daily_report||""};
           return e;
         });
         const extraLocked=(data||[]).filter(e=>!defaultDates.has(e.date)&&e.locked)
-          .map(e=>({id:e.id,day:e.day,date:e.date,activity:e.activity,locked:e.locked,hours:e.hours,allocations:e.allocations||[]}));
+          .map(e=>({id:e.id,day:e.day,date:e.date,activity:e.activity,locked:e.locked,hours:e.hours,allocations:e.allocations||[],dailyReport:e.daily_report||""}));
         const all=[...merged,...extraLocked].sort((a,b)=>new Date(a.date)-new Date(b.date));
         setTimesheetData(prev=>({...prev,[k]:all}));
       }).catch(()=>{});
@@ -1260,6 +1260,7 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
   function addAlloc(eid){setEntries(prev=>prev.map(e=>{if(e.id!==eid)return e;const used=e.allocations.reduce((s,a)=>s+a.allocation,0);const rem=Math.round((1-used)*4)/4;if(rem<=0)return e;const usedIds=e.allocations.map(a=>Number(a.projectId));const nextProj=openProj.find(p=>!usedIds.includes(p.id))?.id||"";return{...e,allocations:[...e.allocations,{id:Date.now(),projectId:nextProj,allocation:rem,note:""}]};}));}
   function delAlloc(eid,aid){setEntries(prev=>prev.map(e=>e.id!==eid?e:{...e,allocations:e.allocations.filter(a=>a.id!==aid)}));}
   function updAlloc(eid,aid,field,val){setEntries(prev=>prev.map(e=>e.id!==eid?e:{...e,allocations:e.allocations.map(a=>a.id!==aid?a:{...a,[field]:val})}));}
+  function updEntry(eid,field,val){setEntries(prev=>prev.map(e=>e.id!==eid?e:{...e,[field]:val}));}
   // updAct removed — activity is set by user type / approved requests, not editable in-row
 
   // ── Bulk operations
@@ -1596,6 +1597,7 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
                         </td>}
                         <td style={{padding:"8px 6px",textAlign:"center"}} onClick={ev=>{ev.stopPropagation();canExpand&&toggleRow(e.id);}}>
                           {canExpand&&<span className={`exp-arrow${isOpen?" open":""}`}>▶</span>}
+                          {e.dailyReport&&!isOpen&&<span title={e.dailyReport} style={{fontSize:9,marginLeft:3,color:"var(--v)"}}>📝</span>}
                         </td>
                         <td style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,color:"#000"}}>
                           {e.date}
@@ -1649,6 +1651,18 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
                                   Total: {(e.allocations.reduce((s,a)=>s+a.allocation,0)*100).toFixed(0)}%
                                   {Math.abs(e.allocations.reduce((s,a)=>s+a.allocation,0)-1)>=0.01&&" ⚠ must = 100%"}
                                 </span>
+                              </div>
+                              {/* Daily report — optional free-form work log for this day */}
+                              <div style={{padding:"8px 12px 12px 38px",borderTop:"1px solid var(--b)",marginTop:6}}>
+                                <label style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",color:"var(--t3)",display:"block",marginBottom:4}}>Daily report <span style={{textTransform:"none",letterSpacing:0,fontWeight:400,color:"var(--t3)"}}>· optional</span></label>
+                                <textarea
+                                  className="fta"
+                                  placeholder="What did you work on today? Add tasks, blockers, key decisions…"
+                                  value={e.dailyReport||""}
+                                  onChange={ev=>updEntry(e.id,"dailyReport",ev.target.value)}
+                                  rows={2}
+                                  style={{minHeight:48,fontSize:12.5,padding:"7px 10px"}}
+                                />
                               </div>
                             </div>
                           </td>

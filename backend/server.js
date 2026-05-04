@@ -1477,9 +1477,9 @@ app.post('/api/timesheets', authenticateToken, async (req, res) => {
     for (const entry of entries) {
       await client.query(
         `INSERT INTO timesheet_entries
-         (user_id, year, month, day, date, activity, locked, hours, allocations)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        [userId, year, month, entry.day, entry.date, entry.activity, entry.locked, entry.hours, JSON.stringify(entry.allocations)]
+         (user_id, year, month, day, date, activity, locked, hours, allocations, daily_report)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [userId, year, month, entry.day, entry.date, entry.activity, entry.locked, entry.hours, JSON.stringify(entry.allocations), entry.dailyReport || entry.daily_report || null]
       );
     }
 

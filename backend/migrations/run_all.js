@@ -18,6 +18,7 @@ const migrations = [
   'drop_project_type.js',
   'add_departments_and_balances.js',
   'add_payroll_id.js',
+  'add_daily_report.js',
 ];
 
 const start = Date.now();
