@@ -385,21 +385,23 @@ body{background:var(--bg);color:var(--t);font-family:"Aptos","Segoe UI","Aptos D
 .bgr2{background:var(--s2);color:var(--t3);}
 .btn{padding:7px 15px;border-radius:var(--rs);cursor:pointer;font-size:13px;font-weight:600;transition:all .12s;border:none;font-family:"Aptos","Segoe UI",-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;display:inline-flex;align-items:center;gap:6px;}
 .bp{background:var(--v);color:#fff;box-shadow:0 1px 0 rgba(255,255,255,.25) inset, 0 6px 14px rgba(15,39,164,.30);}.bp:hover{background:var(--vd);box-shadow:0 1px 0 rgba(255,255,255,.25) inset, 0 10px 22px rgba(15,39,164,.35);}
-.bo{background:transparent;border:1px solid var(--b2);color:var(--t2);}.bo:hover{border-color:var(--v);color:var(--v);background:var(--vl);}
+.bo{background:rgba(255,255,255,0.6);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid rgba(11,16,32,0.10);color:var(--t2);}.bo:hover{border-color:var(--v);color:var(--v);background:rgba(231,234,251,0.7);}
 .bg2{background:transparent;border:none;color:var(--t3);padding:5px 8px;}.bg2:hover{color:var(--t);background:var(--s2);border-radius:var(--rs);}
 .bd{background:var(--rel);color:var(--re);border:1px solid #fecaca;}.bd:hover{background:#fee2e2;}
 .bs{background:var(--grl);color:var(--gr);border:1px solid #a7f3d0;}.bs:hover{background:#d1fae5;}
 .bsk2{background:var(--skl);color:var(--sk);border:1px solid #bae6fd;}.bsk2:hover{background:#e0f2fe;}
 .bam2{background:var(--aml);color:var(--am);border:1px solid #fcd34d;}.bam2:hover{background:#fef3c7;}
 .bsm{padding:5px 11px;font-size:12px;}.bxs{padding:3px 8px;font-size:11px;}
-.fg{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.fg{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
 .ff{grid-column:1/-1;}
-.fgrp{display:flex;flex-direction:column;gap:5px;}
-.flbl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--t2);}
-.fi,.fsel,.fta{background:var(--surface);border:1px solid var(--b2);color:var(--t);padding:9px 12px;border-radius:var(--rs);font-size:13px;font-family:"Aptos","Segoe UI",-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;outline:none;transition:border-color .12s,box-shadow .12s;width:100%;}
-.fi:focus,.fsel:focus,.fta:focus{border-color:var(--v);box-shadow:0 0 0 3px rgba(124,58,237,.1);}
-.fta{resize:vertical;min-height:68px;}
-.fnote{font-size:11px;color:var(--am);font-weight:500;margin-top:4px;}
+.fgrp{display:flex;flex-direction:column;gap:6px;animation:fade-up .25s cubic-bezier(0.2,0.7,0.2,1);}
+.flbl{font-size:11px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--t3);}
+.fi,.fsel,.fta{background:rgba(255,255,255,0.7);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid rgba(11,16,32,0.10);color:var(--t);padding:10px 14px;border-radius:8px;font-size:14px;font-family:"Aptos","Segoe UI",-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;outline:none;transition:border-color .18s cubic-bezier(0.2,0.7,0.2,1),box-shadow .18s cubic-bezier(0.2,0.7,0.2,1),background .18s cubic-bezier(0.2,0.7,0.2,1);width:100%;}
+.fi:hover,.fsel:hover,.fta:hover{border-color:rgba(11,16,32,0.18);background:rgba(255,255,255,0.85);}
+.fi:focus,.fsel:focus,.fta:focus{border-color:var(--v);background:#fff;box-shadow:0 0 0 4px rgba(15,39,164,0.12);}
+.fta{resize:vertical;min-height:80px;line-height:1.5;}
+.fnote{font-size:12px;color:var(--t3);font-weight:400;margin:0;line-height:1.45;}
+@keyframes fade-up{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
 .sw{position:relative;display:inline-block;width:36px;height:20px;}
 .sw input{opacity:0;width:0;height:0;}
 .sldr{position:absolute;cursor:pointer;inset:0;background:var(--s3);border-radius:20px;transition:.18s;}
@@ -428,12 +430,12 @@ input:checked+.sldr:before{transform:translateX(16px);}
 .rc:hover{box-shadow:var(--shm);}
 .ri{width:36px;height:36px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;}
 .mo{position:fixed;inset:0;background:rgba(11,16,32,.45);z-index:200;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(8px) saturate(160%);-webkit-backdrop-filter:blur(8px) saturate(160%);animation:fi .14s;}
-.md{background:rgba(255,255,255,0.88);backdrop-filter:blur(26px) saturate(180%);-webkit-backdrop-filter:blur(26px) saturate(180%);border:1px solid rgba(11,16,32,0.08);border-radius:20px;padding:24px;width:520px;max-width:95vw;max-height:88vh;overflow-y:auto;box-shadow:var(--shl);animation:su .18s ease;}
+.md{background:rgba(255,255,255,0.88);backdrop-filter:blur(26px) saturate(180%);-webkit-backdrop-filter:blur(26px) saturate(180%);border:1px solid rgba(11,16,32,0.08);border-radius:20px;padding:28px;width:520px;max-width:95vw;max-height:88vh;overflow-y:auto;box-shadow:var(--shl);animation:su .28s cubic-bezier(0.2,0.7,0.2,1);}
 .md-wide{width:680px;}
-.md-title{font-size:17px;font-weight:800;color:var(--t);margin-bottom:18px;}
-.md-footer{display:flex;gap:10px;margin-top:20px;justify-content:flex-end;}
+.md-title{font-family:"Aptos Display","Aptos","Segoe UI",sans-serif;font-size:22px;font-weight:700;color:var(--t);margin-bottom:20px;letter-spacing:-0.01em;line-height:1.2;}
+.md-footer{display:flex;gap:10px;margin-top:24px;padding-top:20px;border-top:1px solid rgba(11,16,32,0.06);justify-content:flex-end;}
 @keyframes fi{from{opacity:0}to{opacity:1}}
-@keyframes su{from{transform:translateY(14px);opacity:0}to{transform:translateY(0);opacity:1}}
+@keyframes su{from{transform:translateY(20px) scale(0.97);opacity:0}to{transform:translateY(0) scale(1);opacity:1}}
 @keyframes spin{to{transform:rotate(360deg);}}
 
 /* ─── Status badges — unified visual treatment ───────────────────────────── */
@@ -2639,28 +2641,35 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
           <div className="md" style={{maxWidth:560}}><div className="md-title">{form.type?form.type:"New Request"}</div>
             <div className="fg">
 
-              {/* ── Type picker: icon pill grid ── */}
-              <div className="fgrp ff">
-                <label className="flbl">Type <span style={{color:"var(--re)"}}>*</span></label>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(148px,1fr))",gap:6,marginTop:4}}>
-                  {leaveTypes.map(t=>(
-                    <button key={t} type="button"
-                      onClick={()=>setForm(f=>({...f,type:t,halfDayStart:HALF_DAY_TYPES.includes(t)?f.halfDayStart:"",halfDayEnd:HALF_DAY_TYPES.includes(t)?f.halfDayEnd:""}))}
-                      style={{padding:"8px 10px",borderRadius:"var(--rs)",border:`1.5px solid ${form.type===t?"var(--v)":"var(--b)"}`,background:form.type===t?"var(--vl)":"var(--surface)",cursor:"pointer",display:"flex",alignItems:"center",gap:7,fontSize:12,fontWeight:form.type===t?700:400,color:form.type===t?"var(--v)":"var(--t2)",textAlign:"left",transition:"all .15s"}}>
-                      <span style={{fontSize:15}}>{icos[t]||"📋"}</span>{t}
-                    </button>
-                  ))}
+              {/* ── Type picker: modern card grid ── */}
+              <div className="fgrp ff" style={{gap:10}}>
+                <label className="flbl">Request type <span style={{color:"var(--re)"}}>*</span></label>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:8}}>
+                  {leaveTypes.map(t=>{
+                    const sel=form.type===t;
+                    return(
+                      <button key={t} type="button"
+                        onClick={()=>setForm(f=>({...f,type:t,halfDayStart:HALF_DAY_TYPES.includes(t)?f.halfDayStart:"",halfDayEnd:HALF_DAY_TYPES.includes(t)?f.halfDayEnd:""}))}
+                        style={{padding:"12px 12px",borderRadius:10,border:`1px solid ${sel?"var(--v)":"rgba(11,16,32,0.08)"}`,background:sel?"linear-gradient(180deg,#E7EAFB 0%,rgba(231,234,251,0.4) 100%)":"rgba(255,255,255,0.55)",backdropFilter:"blur(8px)",WebkitBackdropFilter:"blur(8px)",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"flex-start",gap:6,fontSize:13,fontWeight:sel?600:500,color:sel?"var(--v)":"var(--t)",textAlign:"left",transition:"transform .18s cubic-bezier(0.2,0.7,0.2,1),background .18s cubic-bezier(0.2,0.7,0.2,1),border-color .18s cubic-bezier(0.2,0.7,0.2,1),box-shadow .18s cubic-bezier(0.2,0.7,0.2,1)",boxShadow:sel?"0 1px 0 rgba(255,255,255,0.6) inset, 0 4px 12px rgba(15,39,164,0.10)":"0 1px 0 rgba(255,255,255,0.6) inset",position:"relative",overflow:"hidden"}}
+                        onMouseEnter={e=>{if(!sel){e.currentTarget.style.transform="translateY(-1px)";e.currentTarget.style.background="rgba(255,255,255,0.85)";}}}
+                        onMouseLeave={e=>{if(!sel){e.currentTarget.style.transform="";e.currentTarget.style.background="rgba(255,255,255,0.55)";}}}>
+                        <span style={{fontSize:18,lineHeight:1}}>{icos[t]||"📋"}</span>
+                        <span style={{lineHeight:1.25}}>{t}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
-              {/* ── Balance line (compact) ── */}
+              {/* ── Balance line (compact glass) ── */}
               {["Annual Leave","Sick Leave","Compassionate","Recovery Leave"].includes(form.type)&&(()=>{
                 const tooMuch=(liveDc||0)>availForType;
                 const remAfter=Math.max(0,availForType-(liveDc||0));
                 return(
-                  <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",fontSize:12,color:"var(--t2)"}}>
-                    <span>Available: <b style={{color:"var(--v)"}}>{availForType.toFixed(1)}d</b></span>
-                    {liveDc>0&&<span style={{color:tooMuch?"var(--re)":"var(--t3)"}}>· {tooMuch?`exceeds by ${(liveDc-availForType).toFixed(1)}d`:`${remAfter.toFixed(1)}d remaining after`}</span>}
+                  <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:tooMuch?"rgba(243,40,55,0.06)":"rgba(15,39,164,0.05)",border:`1px solid ${tooMuch?"rgba(243,40,55,0.20)":"rgba(15,39,164,0.12)"}`,borderRadius:8,fontSize:13,flexWrap:"wrap"}}>
+                    <span style={{display:"inline-block",width:6,height:6,borderRadius:"50%",background:tooMuch?"var(--re)":"var(--v)"}}/>
+                    <span style={{color:"var(--t2)"}}>Available <b style={{color:"var(--v)",fontWeight:700}}>{availForType.toFixed(1)}d</b></span>
+                    {liveDc>0&&<span style={{color:tooMuch?"var(--re)":"var(--t3)",fontWeight:tooMuch?600:400,marginLeft:"auto"}}>{tooMuch?`exceeds by ${(liveDc-availForType).toFixed(1)}d`:`${remAfter.toFixed(1)}d remaining after`}</span>}
                   </div>
                 );
               })()}
