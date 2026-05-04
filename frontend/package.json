@@ -1,7 +1,7 @@
 {
   "name": "mazarine-timesheet",
   "version": "1.0.0",
-  "description": "Mazarine Energy Tunisia - HR Timesheet Management System",
+  "description": "Mazarine Energy Tunisia — Timesheet Management System",
   "private": true,
   "dependencies": {
     "react": "^18.2.0",

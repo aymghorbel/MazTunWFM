@@ -1,7 +1,7 @@
 {
-  "name": "Mazarine Timesheet",
-  "short_name": "Mazarine",
-  "description": "Mazarine Energy — HR Timesheet Management",
+  "name": "Mazarine Energy — Timesheet Management System",
+  "short_name": "Mazarine TMS",
+  "description": "Mazarine Energy — Timesheet Management System",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait-primary",

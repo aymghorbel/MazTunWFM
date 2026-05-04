@@ -1,12 +1,12 @@
 ────────────────────────────────────────────────────────────────────────────────
 INTEGRATION TASK – Append ERP Duty Rotation Module to the
-Mazarine Energy Workforce Management Platform
+Mazarine Energy Timesheet Management System
 ────────────────────────────────────────────────────────────────────────────────
 
 ## CONTEXT
 
-You are working on a production React SPA: the **Mazarine Energy Workforce
-Management Platform**. This is a single large JSX file (or component tree)
+You are working on a production React SPA: the **Mazarine Energy Timesheet
+Management System**. This is a single large JSX file (or component tree)
 that already contains the following modules accessible from a dark sidebar:
 
   • Dashboard      – KPI cards, Recharts graphs, field rotation today, leave today

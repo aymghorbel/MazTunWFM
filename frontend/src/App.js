@@ -799,7 +799,7 @@ function LoginScreen({onLogin, onVerifyTOTP, cs={}}) {
         : <img src="/mazarine-logo.svg" alt="Mazarine Energy" style={{height:46,width:"auto",objectFit:"contain"}}/>}
       <div>
         <div style={{fontSize:20,fontWeight:800,color:"var(--t)"}}>{cs.companyName||"MAZARINE"}</div>
-        <div style={{fontSize:11,color:"var(--t3)",fontWeight:500}}>{cs.companySubtitle||"Energy Tunisia"} · Timesheet Platform</div>
+        <div style={{fontSize:11,color:"var(--t3)",fontWeight:500}}>{cs.companySubtitle||"Energy Tunisia"} · Timesheet Management System</div>
       </div>
     </div>
   );
