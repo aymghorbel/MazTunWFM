@@ -1074,7 +1074,7 @@ function TwoFactorModal({onClose}) {
 }
 
 // ─── TIMESHEET STATUS BANNER ──────────────────────────────────────────────────
-function TSBanner({tsStatus, onSubmit, onRecall, user, entries, leaveActs=[]}) {
+function TSBanner({tsStatus, onSubmit, onRecall, onSaveDraft, saving, savingDraft, user, entries, leaveActs=[]}) {
   const status = tsStatus?.status || "draft";
   const workEntries = entries.filter(e=>!leaveActs.includes(e.activity));
   const allAllocOk = workEntries.every(e=>{
@@ -1083,11 +1083,24 @@ function TSBanner({tsStatus, onSubmit, onRecall, user, entries, leaveActs=[]}) {
   });
   const unallocated = workEntries.filter(e=>e.allocations.length===0).length;
 
+  const draftBtns = (
+    <div style={{display:"flex",gap:8,alignItems:"center"}}>
+      {onSaveDraft && (
+        <button className="btn bo bsm" onClick={onSaveDraft} disabled={saving||savingDraft} title="Save your work without submitting for approval">
+          {savingDraft?"Saving…":"Save Draft"}
+        </button>
+      )}
+      <button className="btn bp bsm" onClick={onSubmit} disabled={!allAllocOk||saving||savingDraft} title={!allAllocOk?"All entries must be 100% allocated before submitting":""} style={{opacity:allAllocOk?1:.5,cursor:allAllocOk?"pointer":"not-allowed"}}>
+        {saving?"Submitting…":"Submit for Approval ▶"}
+      </button>
+    </div>
+  );
+
   const cfg = {
-    draft:     {ico:"📝", title:"Draft — Timesheet not yet submitted",    sub:`${entries.length} entries · ${unallocated>0?`${unallocated} entries missing project allocation · `:""}Edit entries then submit for manager review`, btn:<button className="btn bp bsm" onClick={onSubmit} disabled={!allAllocOk} title={!allAllocOk?"All entries must be 100% allocated before submitting":""} style={{opacity:allAllocOk?1:.5,cursor:allAllocOk?"pointer":"not-allowed"}}>Submit for Approval ▶</button>},
+    draft:     {ico:"📝", title:"Draft — Timesheet not yet submitted",    sub:`${entries.length} entries · ${unallocated>0?`${unallocated} entries missing project allocation · `:""}Save your progress or submit for review`, btn:draftBtns},
     submitted: {ico:"⏳", title:"Submitted — Awaiting manager review",      sub:`Submitted ${tsStatus?.submittedAt||""}`,     btn:<button className="btn bam2 bsm" onClick={onRecall}>↩ Recall & Edit</button>},
     approved:  {ico:"✅", title:"Approved",                                 sub:`Approved by manager${tsStatus?.reviewComment?` · "${tsStatus.reviewComment}"`:""}`, btn:null},
-    rejected:  {ico:"❌", title:"Rejected — Please review and resubmit",    sub:tsStatus?.reviewComment?`Manager comment: "${tsStatus.reviewComment}"`:"No comment provided", btn:<button className="btn bp bsm" onClick={onSubmit}>Resubmit ▶</button>},
+    rejected:  {ico:"❌", title:"Rejected — Please review and resubmit",    sub:tsStatus?.reviewComment?`Manager comment: "${tsStatus.reviewComment}"`:"No comment provided", btn:draftBtns},
   };
   const c=cfg[status]||cfg.draft;
   return (
@@ -1405,21 +1418,41 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
     return editableEntries.length;
   },[bulkScope,bulkActFilter,selected,editableEntries]);
 
-  async function handleSubmit(){
-    const badAlloc=entries.filter(e=>!LEAVE_ACTS_PS.includes(e.activity)&&e.allocations.length>0&&Math.abs(e.allocations.reduce((s,a)=>s+a.allocation,0)-1)>=0.01).length;
-    if(badAlloc>0){toast(`${badAlloc} entries have allocations that don't add up to 100%. Please fix before submitting.`);return;}
-    // Normalize: merge any duplicate projectIds within each entry's allocations
-    const normEntries=entries.map(e=>{
+  const [saving,setSaving]=useState(false);
+  const [savingDraft,setSavingDraft]=useState(false);
+
+  // Normalize: merge duplicate projectIds within each entry, return cleaned list
+  function normalizeEntries(){
+    return entries.map(e=>{
       if(e.allocations.length<2) return e;
       const m={};
       e.allocations.forEach(a=>{const pid=a.projectId;if(!m[pid])m[pid]={...a};else m[pid].allocation+=a.allocation;});
       return{...e,allocations:Object.values(m)};
     });
+  }
+
+  async function handleSaveDraft(){
+    if(savingDraft||saving) return;
+    setSavingDraft(true);
     try {
-      await timesheetAPI.save(user.id, year, month+1, normEntries);
+      await timesheetAPI.save(user.id, year, month+1, normalizeEntries());
+      toast("Draft saved","info");
+    } catch(err) { toast("Failed to save draft: "+err.message); }
+    finally { setSavingDraft(false); }
+  }
+
+  async function handleSubmit(){
+    if(saving||savingDraft) return;
+    const badAlloc=entries.filter(e=>!LEAVE_ACTS_PS.includes(e.activity)&&e.allocations.length>0&&Math.abs(e.allocations.reduce((s,a)=>s+a.allocation,0)-1)>=0.01).length;
+    if(badAlloc>0){toast(`${badAlloc} entries have allocations that don't add up to 100%. Please fix before submitting.`);return;}
+    setSaving(true);
+    try {
+      await timesheetAPI.save(user.id, year, month+1, normalizeEntries());
       await timesheetAPI.updateStatus(user.id, year, month+1, "submitted");
       setTsStatuses(prev=>({...prev,[key]:{status:"submitted",submittedAt:new Date().toISOString().split("T")[0],reviewComment:"",reviewedBy:null,reviewedAt:null}}));
+      toast("Timesheet submitted for approval","info");
     } catch(err) { toast("Failed to submit timesheet: "+err.message); }
+    finally { setSaving(false); }
   }
   async function handleRecall(){
     try {
@@ -1506,7 +1539,7 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
   return (
     <div>
       <button className="btn bo bsm" onClick={()=>setDetailMonth(null)} style={{marginBottom:14}}>← All Timesheets</button>
-      <TSBanner tsStatus={tsStatus} onSubmit={handleSubmit} onRecall={handleRecall} user={user} entries={entries} leaveActs={LEAVE_ACTS_PS}/>
+      <TSBanner tsStatus={tsStatus} onSubmit={handleSubmit} onRecall={handleRecall} onSaveDraft={handleSaveDraft} saving={saving} savingDraft={savingDraft} user={user} entries={entries} leaveActs={LEAVE_ACTS_PS}/>
 
       {monthRequests.length>0&&(
         <div style={{marginBottom:12,padding:"10px 14px",background:"var(--s2)",borderRadius:"var(--rs)",border:"1px solid var(--b)"}}>
