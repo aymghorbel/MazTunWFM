@@ -423,7 +423,8 @@ input:checked+.sldr:before{transform:translateX(16px);}
 @media print{.sidebar,.topbar,.btn,nav,.tabs,.hamburger{display:none!important;}.main{margin:0!important;padding:0!important;}.card{box-shadow:none!important;border:1px solid #e2e8f0!important;}body{background:#fff!important;}}
 .prog{height:6px;background:var(--s2);border-radius:3px;overflow:hidden;}
 .prog-f{height:100%;border-radius:3px;transition:width .4s;}
-.rc{display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--surface);border:1px solid var(--b);border-radius:var(--r);box-shadow:var(--sh);margin-bottom:8px;}
+.rc{display:flex;align-items:center;gap:12px;padding:10px 14px;background:rgba(255,255,255,0.68);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);border:1px solid rgba(11,16,32,0.08);border-radius:10px;box-shadow:var(--sh);margin-bottom:6px;transition:transform .18s cubic-bezier(0.2,0.7,0.2,1),box-shadow .18s cubic-bezier(0.2,0.7,0.2,1);}
+.rc:hover{transform:translateY(-1px);box-shadow:var(--shm);}
 .rc:hover{box-shadow:var(--shm);}
 .ri{width:36px;height:36px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;}
 .mo{position:fixed;inset:0;background:rgba(11,16,32,.45);z-index:200;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(8px) saturate(160%);-webkit-backdrop-filter:blur(8px) saturate(160%);animation:fi .14s;}
@@ -433,6 +434,7 @@ input:checked+.sldr:before{transform:translateX(16px);}
 .md-footer{display:flex;gap:10px;margin-top:20px;justify-content:flex-end;}
 @keyframes fi{from{opacity:0}to{opacity:1}}
 @keyframes su{from{transform:translateY(14px);opacity:0}to{transform:translateY(0);opacity:1}}
+@keyframes spin{to{transform:rotate(360deg);}}
 
 /* ─── Status badges — unified visual treatment ───────────────────────────── */
 .badge{font-family:"Aptos","Segoe UI",-apple-system,sans-serif !important;font-size:11px !important;font-weight:600 !important;letter-spacing:0 !important;text-transform:none !important;border-radius:4px !important;padding:3px 9px !important;border:1px solid transparent;line-height:1.4;}
@@ -2385,7 +2387,24 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
     ?activeTeamR.filter(r=>datesOverlap(form.start,form.end,r.start,r.end))
     :[];
 
+  const [submitting,setSubmitting]=useState(false);
+
+  // Quick date presets — fill start (and end if not set) from common shortcuts
+  function applyDatePreset(kind){
+    const now=new Date();
+    let start=new Date(now);
+    if(kind==="tomorrow") start.setDate(now.getDate()+1);
+    if(kind==="nextMon"){
+      const dow=now.getDay();
+      const offset=dow===0?1:(8-dow); // Sunday → 1 day, otherwise next Monday
+      start.setDate(now.getDate()+offset);
+    }
+    const ds=`${start.getFullYear()}-${String(start.getMonth()+1).padStart(2,"0")}-${String(start.getDate()).padStart(2,"0")}`;
+    setForm(f=>({...f,start:ds,end:f.end&&f.end>=ds?f.end:ds}));
+  }
+
   async function submit(){
+    if(submitting) return;
     const isTempAuth=form.type==="Temporary Authorization";
     const isDoc=ADMIN_DOC_TYPES.includes(form.type);
     if(!form.type)return;
@@ -2470,6 +2489,7 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
         return;
       }
     }
+    setSubmitting(true);
     try{
       const startDate=isDoc?(form.start||new Date().toISOString().split("T")[0]):form.start;
       const created=await requestsAPI.create({userId:user.id,type:form.type,start:startDate,end:isDoc?startDate:endDate,comment:form.comment,daysCount:dc,durationHours,halfDayStart:isDoc?null:(form.halfDayStart||null),halfDayEnd:isDoc?null:(form.halfDayEnd||null),balanceSource:isDoc?"annual":(form.balanceSource||"annual"),authStartTime:isTempAuth?(form.authStartTime||null):null,authEndTime:isTempAuth?(form.authEndTime||null):null,attachmentUrl:attachUrl||null});
@@ -2486,7 +2506,9 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
         }
       }
       setShow(false);setForm({type:"",start:"",end:"",comment:"",halfDayStart:"",halfDayEnd:"",durationHours:1,balanceSource:"annual",authStartTime:"08:00",authEndTime:"10:00"});setAttachFile(null);setAttachUrl("");
+      toast(`✓ ${form.type} request submitted`,"info");
     }catch(err){toast('Failed to submit request: '+err.message);}
+    finally{setSubmitting(false);}
   }
   async function doCancelRequest(id,isApproved,reason){
     try{
@@ -2627,13 +2649,13 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
         const canSubmit=form.type&&(isAdminDoc||form.start)&&(isAdminDoc||form.type==="Temporary Authorization"||(form.end&&form.end>=form.start))&&(user.allowOverlap||formConflicts.length===0);
         const dateErr=form.start&&form.end&&form.end<form.start;
         return(
-        <div className="mo" onClick={e=>e.target.className==="mo"&&setShow(false)}>
-          <div className="md"><div className="md-title">New Request</div>
+        <div className="mo" onClick={e=>!submitting&&e.target.className==="mo"&&setShow(false)}>
+          <div className="md" style={{maxWidth:560}}><div className="md-title">{form.type?form.type:"New Request"}</div>
             <div className="fg">
 
               {/* ── Type picker: icon pill grid ── */}
               <div className="fgrp ff">
-                <label className="flbl">Leave & Absence <span style={{color:"var(--re)"}}>*</span></label>
+                <label className="flbl">Type <span style={{color:"var(--re)"}}>*</span></label>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(148px,1fr))",gap:6,marginTop:4}}>
                   {leaveTypes.map(t=>(
                     <button key={t} type="button"
@@ -2645,14 +2667,27 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
                 </div>
               </div>
 
-              {/* ── Balance banner ── */}
-              {["Annual Leave","Sick Leave","Compassionate","Recovery Leave"].includes(form.type)&&(
-                <div style={{display:"flex",gap:10,padding:"8px 12px",background:"var(--s2)",borderRadius:"var(--rs)",fontSize:12,flexWrap:"wrap",alignItems:"center",marginBottom:2}}>
-                  <span>📅 Annual: <b style={{color:"var(--gr)"}}>{annualRem}d</b></span>
-                  {(user.recoveryBalance||0)>0&&<span>🔄 Recovery: <b style={{color:"var(--v)"}}>{Number(user.recoveryBalance||0)}d</b></span>}
-                  {liveDc>0&&<span style={{marginLeft:"auto",fontWeight:700,fontSize:11,color:liveDc>availForType?"var(--re)":"var(--gr)"}}>After: {Math.max(0,availForType-liveDc).toFixed(1)}d left</span>}
-                </div>
-              )}
+              {/* ── Balance banner with progress ── */}
+              {["Annual Leave","Sick Leave","Compassionate","Recovery Leave"].includes(form.type)&&(()=>{
+                const pctUsed=availForType>0?Math.min(100,(Math.max(0,liveDc||0)/availForType)*100):0;
+                const remAfter=Math.max(0,availForType-(liveDc||0));
+                const tooMuch=(liveDc||0)>availForType;
+                return(
+                <div style={{padding:"10px 14px",background:"var(--vl)",border:`1px solid ${tooMuch?"var(--re)":"var(--v)"}`,borderRadius:"var(--rs)",fontSize:12}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap",marginBottom:liveDc>0?6:0}}>
+                    <div style={{display:"flex",gap:14,fontSize:12,flexWrap:"wrap"}}>
+                      <span style={{color:"var(--t2)"}}>Annual: <b style={{color:"var(--gr)"}}>{annualRem}d</b></span>
+                      {(user.recoveryBalance||0)>0&&<span style={{color:"var(--t2)"}}>Recovery: <b style={{color:"var(--v)"}}>{Number(user.recoveryBalance||0)}d</b></span>}
+                    </div>
+                    {liveDc>0&&<span style={{fontWeight:700,fontSize:12,color:tooMuch?"var(--re)":"var(--gr)"}}>{tooMuch?`⚠ exceeds by ${(liveDc-availForType).toFixed(1)}d`:`${remAfter.toFixed(1)}d left after`}</span>}
+                  </div>
+                  {liveDc>0&&(
+                    <div style={{height:6,background:"rgba(15,39,164,0.12)",borderRadius:3,overflow:"hidden"}}>
+                      <div style={{height:"100%",width:`${pctUsed}%`,background:tooMuch?"var(--re)":"var(--v)",transition:"width .25s ease"}}/>
+                    </div>
+                  )}
+                </div>);
+              })()}
 
               {/* ── Administrative Document fields ── */}
               {isAdminDoc&&(
@@ -2681,14 +2716,21 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
                 </>
               )}
 
-              {/* ── Regular leave date fields (2-column) ── */}
+              {/* ── Regular leave date fields ── */}
               {form.type&&form.type!=="Temporary Authorization"&&!isAdminDoc&&(
                 <>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  {/* Quick presets — set the start date in one click */}
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap",fontSize:11}}>
+                    <span style={{fontSize:11,color:"var(--t3)",alignSelf:"center",marginRight:4}}>Quick:</span>
+                    {[["today","Today"],["tomorrow","Tomorrow"],["nextMon","Next Mon"]].map(([k,l])=>(
+                      <button key={k} type="button" onClick={()=>applyDatePreset(k)} style={{padding:"3px 10px",borderRadius:20,border:"1px solid var(--b)",background:"var(--surface)",color:"var(--t2)",cursor:"pointer",fontSize:11,fontWeight:600}}>{l}</button>
+                    ))}
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:10}}>
                     <div className="fgrp" style={{marginBottom:4}}>
                       <label className="flbl">Start Date <span style={{color:"var(--re)"}}>*</span></label>
                       <input type="date" className="fi" value={form.start}
-                        onChange={e=>{const v=e.target.value;setForm(f=>({...f,start:v,end:(f.end&&f.end<v)?v:f.end}));}}/>
+                        onChange={e=>{const v=e.target.value;setForm(f=>({...f,start:v,end:(!f.end||f.end<v)?v:f.end}));}}/>
                       {showHalfDay&&(
                         <select className="isel" style={{width:"100%",marginTop:5}} value={form.halfDayStart} onChange={e=>setForm(f=>({...f,halfDayStart:e.target.value}))}>
                           <option value="">Full day</option><option value="AM">Half — AM</option><option value="PM">Half — PM</option>
@@ -2711,9 +2753,9 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
                       }
                     </div>
                   </div>
-                  {liveDc!==null&&(
-                    <div style={{display:"inline-flex",alignItems:"center",gap:6,padding:"4px 12px",background:"var(--vl)",border:"1px solid var(--v)",borderRadius:20,fontSize:12,color:"var(--v)",fontWeight:700,marginBottom:6}}>
-                      📅 {liveDc===0.5?"½ day":`${liveDc} day${liveDc!==1?"s":""}`}
+                  {liveDc!==null&&liveDc>0&&(
+                    <div style={{display:"inline-flex",alignItems:"center",gap:6,padding:"4px 12px",background:"var(--vl)",border:"1px solid var(--v)",borderRadius:20,fontSize:12,color:"var(--v)",fontWeight:700}}>
+                      {liveDc===0.5?"Half day":`${liveDc} working day${liveDc!==1?"s":""}`}
                     </div>
                   )}
                 </>
@@ -2761,15 +2803,21 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
 
               {/* ── Teammate conflict warning ── */}
               {formConflicts.length>0&&(
-                <div style={{padding:"8px 12px",background:user.allowOverlap?"#fef3c7":"var(--rel)",border:`1px solid ${user.allowOverlap?"#f59e0b":"var(--re)"}`,borderRadius:"var(--rs)",fontSize:12,color:user.allowOverlap?"#78350f":"#991b1b"}}>
-                  {user.allowOverlap?"⚠️":"🚫"} {formConflicts.length} teammate{formConflicts.length>1?"s have":"has"} overlapping leave: {formConflicts.map(r=>nm(r.userId)).join(", ")}
-                  {!user.allowOverlap&&<div style={{marginTop:3,fontWeight:600,fontSize:11}}>Submission blocked — contact your manager to resolve the conflict.</div>}
+                <div style={{padding:"10px 12px",background:user.allowOverlap?"#FFF3D1":"var(--rel)",border:`1px solid ${user.allowOverlap?"#F59E0B":"var(--re)"}`,borderRadius:"var(--rs)",fontSize:12,color:user.allowOverlap?"#92400E":"#991b1b",display:"flex",alignItems:"flex-start",gap:8}}>
+                  <span style={{flexShrink:0,marginTop:1}}>{user.allowOverlap?"⚠️":"🚫"}</span>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:600}}>{formConflicts.length} teammate{formConflicts.length>1?"s have":" has"} overlapping leave</div>
+                    <div style={{fontSize:11,marginTop:2,opacity:0.9}}>{formConflicts.map(r=>`${nm(r.userId)} (${r.start}${r.end!==r.start?` → ${r.end}`:""})`).join(" · ")}</div>
+                    {!user.allowOverlap&&<div style={{marginTop:5,fontWeight:600,fontSize:11}}>Submission blocked — contact your manager to resolve the conflict.</div>}
+                  </div>
                 </div>
               )}
             </div>
             <div className="md-footer">
-              <button className="btn bo" onClick={()=>setShow(false)}>Cancel</button>
-              <button className="btn bp" onClick={submit} disabled={!canSubmit} style={{opacity:canSubmit?1:.5,cursor:canSubmit?"pointer":"not-allowed"}}>Submit</button>
+              <button className="btn bo" onClick={()=>setShow(false)} disabled={submitting}>Cancel</button>
+              <button className="btn bp" onClick={submit} disabled={!canSubmit||submitting} style={{opacity:(canSubmit&&!submitting)?1:.5,cursor:(canSubmit&&!submitting)?"pointer":"not-allowed",minWidth:130,justifyContent:"center"}}>
+                {submitting?(<><span style={{display:"inline-block",width:14,height:14,border:"2px solid rgba(255,255,255,0.5)",borderTopColor:"#fff",borderRadius:"50%",animation:"spin .8s linear infinite"}}/> Submitting…</>):"Submit Request"}
+              </button>
             </div>
           </div>
         </div>
