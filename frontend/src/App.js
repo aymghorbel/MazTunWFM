@@ -392,14 +392,14 @@ body{background:var(--bg);color:var(--t);font-family:"Aptos","Segoe UI","Aptos D
 .bsk2{background:var(--skl);color:var(--sk);border:1px solid #bae6fd;}.bsk2:hover{background:#e0f2fe;}
 .bam2{background:var(--aml);color:var(--am);border:1px solid #fcd34d;}.bam2:hover{background:#fef3c7;}
 .bsm{padding:5px 11px;font-size:12px;}.bxs{padding:3px 8px;font-size:11px;}
-.fg{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.fg{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
 .ff{grid-column:1/-1;}
-.fgrp{display:flex;flex-direction:column;gap:6px;animation:fade-up .25s cubic-bezier(0.2,0.7,0.2,1);}
+.fgrp{display:flex;flex-direction:column;gap:4px;animation:fade-up .25s cubic-bezier(0.2,0.7,0.2,1);}
 .flbl{font-size:11px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--t3);}
-.fi,.fsel,.fta{background:rgba(255,255,255,0.7);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid rgba(11,16,32,0.10);color:var(--t);padding:10px 14px;border-radius:8px;font-size:14px;font-family:"Aptos","Segoe UI",-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;outline:none;transition:border-color .18s cubic-bezier(0.2,0.7,0.2,1),box-shadow .18s cubic-bezier(0.2,0.7,0.2,1),background .18s cubic-bezier(0.2,0.7,0.2,1);width:100%;}
+.fi,.fsel,.fta{background:rgba(255,255,255,0.7);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid rgba(11,16,32,0.10);color:var(--t);padding:8px 12px;border-radius:8px;font-size:13.5px;font-family:"Aptos","Segoe UI",-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;outline:none;transition:border-color .18s cubic-bezier(0.2,0.7,0.2,1),box-shadow .18s cubic-bezier(0.2,0.7,0.2,1),background .18s cubic-bezier(0.2,0.7,0.2,1);width:100%;min-width:0;}
 .fi:hover,.fsel:hover,.fta:hover{border-color:rgba(11,16,32,0.18);background:rgba(255,255,255,0.85);}
 .fi:focus,.fsel:focus,.fta:focus{border-color:var(--v);background:#fff;box-shadow:0 0 0 4px rgba(15,39,164,0.12);}
-.fta{resize:vertical;min-height:80px;line-height:1.5;}
+.fta{resize:vertical;min-height:64px;line-height:1.5;}
 .fnote{font-size:12px;color:var(--t3);font-weight:400;margin:0;line-height:1.45;}
 @keyframes fade-up{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
 .sw{position:relative;display:inline-block;width:36px;height:20px;}
@@ -430,10 +430,10 @@ input:checked+.sldr:before{transform:translateX(16px);}
 .rc:hover{box-shadow:var(--shm);}
 .ri{width:36px;height:36px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;}
 .mo{position:fixed;inset:0;background:rgba(11,16,32,.45);z-index:200;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(8px) saturate(160%);-webkit-backdrop-filter:blur(8px) saturate(160%);animation:fi .14s;}
-.md{background:rgba(255,255,255,0.88);backdrop-filter:blur(26px) saturate(180%);-webkit-backdrop-filter:blur(26px) saturate(180%);border:1px solid rgba(11,16,32,0.08);border-radius:20px;padding:28px;width:520px;max-width:95vw;max-height:88vh;overflow-y:auto;box-shadow:var(--shl);animation:su .28s cubic-bezier(0.2,0.7,0.2,1);}
+.md{background:rgba(255,255,255,0.88);backdrop-filter:blur(26px) saturate(180%);-webkit-backdrop-filter:blur(26px) saturate(180%);border:1px solid rgba(11,16,32,0.08);border-radius:18px;padding:22px;width:540px;max-width:95vw;max-height:88vh;overflow-y:auto;box-shadow:var(--shl);animation:su .28s cubic-bezier(0.2,0.7,0.2,1);}
 .md-wide{width:680px;}
-.md-title{font-family:"Aptos Display","Aptos","Segoe UI",sans-serif;font-size:22px;font-weight:700;color:var(--t);margin-bottom:20px;letter-spacing:-0.01em;line-height:1.2;}
-.md-footer{display:flex;gap:10px;margin-top:24px;padding-top:20px;border-top:1px solid rgba(11,16,32,0.06);justify-content:flex-end;}
+.md-title{font-family:"Aptos Display","Aptos","Segoe UI",sans-serif;font-size:20px;font-weight:700;color:var(--t);margin-bottom:14px;letter-spacing:-0.01em;line-height:1.2;}
+.md-footer{display:flex;gap:10px;margin-top:18px;padding-top:14px;border-top:1px solid rgba(11,16,32,0.06);justify-content:flex-end;}
 @keyframes fi{from{opacity:0}to{opacity:1}}
 @keyframes su{from{transform:translateY(20px) scale(0.97);opacity:0}to{transform:translateY(0) scale(1);opacity:1}}
 @keyframes spin{to{transform:rotate(360deg);}}
@@ -2642,19 +2642,19 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
             <div className="fg">
 
               {/* ── Type picker: modern card grid ── */}
-              <div className="fgrp ff" style={{gap:10}}>
+              <div className="fgrp ff">
                 <label className="flbl">Request type <span style={{color:"var(--re)"}}>*</span></label>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:8}}>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:6}}>
                   {leaveTypes.map(t=>{
                     const sel=form.type===t;
                     return(
                       <button key={t} type="button"
                         onClick={()=>setForm(f=>({...f,type:t,halfDayStart:HALF_DAY_TYPES.includes(t)?f.halfDayStart:"",halfDayEnd:HALF_DAY_TYPES.includes(t)?f.halfDayEnd:""}))}
-                        style={{padding:"12px 12px",borderRadius:10,border:`1px solid ${sel?"var(--v)":"rgba(11,16,32,0.08)"}`,background:sel?"linear-gradient(180deg,#E7EAFB 0%,rgba(231,234,251,0.4) 100%)":"rgba(255,255,255,0.55)",backdropFilter:"blur(8px)",WebkitBackdropFilter:"blur(8px)",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"flex-start",gap:6,fontSize:13,fontWeight:sel?600:500,color:sel?"var(--v)":"var(--t)",textAlign:"left",transition:"transform .18s cubic-bezier(0.2,0.7,0.2,1),background .18s cubic-bezier(0.2,0.7,0.2,1),border-color .18s cubic-bezier(0.2,0.7,0.2,1),box-shadow .18s cubic-bezier(0.2,0.7,0.2,1)",boxShadow:sel?"0 1px 0 rgba(255,255,255,0.6) inset, 0 4px 12px rgba(15,39,164,0.10)":"0 1px 0 rgba(255,255,255,0.6) inset",position:"relative",overflow:"hidden"}}
+                        style={{padding:"8px 10px",borderRadius:8,border:`1px solid ${sel?"var(--v)":"rgba(11,16,32,0.08)"}`,background:sel?"linear-gradient(180deg,#E7EAFB 0%,rgba(231,234,251,0.4) 100%)":"rgba(255,255,255,0.55)",backdropFilter:"blur(8px)",WebkitBackdropFilter:"blur(8px)",cursor:"pointer",display:"flex",alignItems:"center",gap:7,fontSize:12.5,fontWeight:sel?600:500,color:sel?"var(--v)":"var(--t)",textAlign:"left",transition:"transform .18s cubic-bezier(0.2,0.7,0.2,1),background .18s cubic-bezier(0.2,0.7,0.2,1),border-color .18s cubic-bezier(0.2,0.7,0.2,1),box-shadow .18s cubic-bezier(0.2,0.7,0.2,1)",boxShadow:sel?"0 1px 0 rgba(255,255,255,0.6) inset, 0 4px 12px rgba(15,39,164,0.10)":"0 1px 0 rgba(255,255,255,0.6) inset",lineHeight:1.25}}
                         onMouseEnter={e=>{if(!sel){e.currentTarget.style.transform="translateY(-1px)";e.currentTarget.style.background="rgba(255,255,255,0.85)";}}}
                         onMouseLeave={e=>{if(!sel){e.currentTarget.style.transform="";e.currentTarget.style.background="rgba(255,255,255,0.55)";}}}>
-                        <span style={{fontSize:18,lineHeight:1}}>{icos[t]||"📋"}</span>
-                        <span style={{lineHeight:1.25}}>{t}</span>
+                        <span style={{fontSize:15,lineHeight:1,flexShrink:0}}>{icos[t]||"📋"}</span>
+                        <span style={{minWidth:0}}>{t}</span>
                       </button>
                     );
                   })}
@@ -2666,7 +2666,7 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
                 const tooMuch=(liveDc||0)>availForType;
                 const remAfter=Math.max(0,availForType-(liveDc||0));
                 return(
-                  <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:tooMuch?"rgba(243,40,55,0.06)":"rgba(15,39,164,0.05)",border:`1px solid ${tooMuch?"rgba(243,40,55,0.20)":"rgba(15,39,164,0.12)"}`,borderRadius:8,fontSize:13,flexWrap:"wrap"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10,padding:"7px 12px",background:tooMuch?"rgba(243,40,55,0.06)":"rgba(15,39,164,0.05)",border:`1px solid ${tooMuch?"rgba(243,40,55,0.20)":"rgba(15,39,164,0.12)"}`,borderRadius:8,fontSize:12.5,flexWrap:"wrap"}}>
                     <span style={{display:"inline-block",width:6,height:6,borderRadius:"50%",background:tooMuch?"var(--re)":"var(--v)"}}/>
                     <span style={{color:"var(--t2)"}}>Available <b style={{color:"var(--v)",fontWeight:700}}>{availForType.toFixed(1)}d</b></span>
                     {liveDc>0&&<span style={{color:tooMuch?"var(--re)":"var(--t3)",fontWeight:tooMuch?600:400,marginLeft:"auto"}}>{tooMuch?`exceeds by ${(liveDc-availForType).toFixed(1)}d`:`${remAfter.toFixed(1)}d remaining after`}</span>}
@@ -2682,10 +2682,10 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
               {/* ── Temporary Authorization fields ── */}
               {form.type==="Temporary Authorization"&&(
                 <>
-                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10}}>
-                    <div className="fgrp" style={{marginBottom:0}}><label className="flbl">Date <span style={{color:"var(--re)"}}>*</span></label><input type="date" className="fi" value={form.start} onChange={e=>setForm(f=>({...f,start:e.target.value}))}/></div>
-                    <div className="fgrp" style={{marginBottom:0}}><label className="flbl">From</label><input type="time" className="fi" value={form.authStartTime} onChange={e=>setForm(f=>({...f,authStartTime:e.target.value}))}/></div>
-                    <div className="fgrp" style={{marginBottom:0}}><label className="flbl">To</label><input type="time" className="fi" value={form.authEndTime} onChange={e=>setForm(f=>({...f,authEndTime:e.target.value}))}/></div>
+                  <div style={{display:"grid",gridTemplateColumns:"minmax(0,1.4fr) minmax(0,1fr) minmax(0,1fr)",gap:10}}>
+                    <div className="fgrp" style={{marginBottom:0,minWidth:0}}><label className="flbl">Date <span style={{color:"var(--re)"}}>*</span></label><input type="date" className="fi" value={form.start} onChange={e=>setForm(f=>({...f,start:e.target.value}))}/></div>
+                    <div className="fgrp" style={{marginBottom:0,minWidth:0}}><label className="flbl">From</label><input type="time" className="fi" value={form.authStartTime} onChange={e=>setForm(f=>({...f,authStartTime:e.target.value}))}/></div>
+                    <div className="fgrp" style={{marginBottom:0,minWidth:0}}><label className="flbl">To</label><input type="time" className="fi" value={form.authEndTime} onChange={e=>setForm(f=>({...f,authEndTime:e.target.value}))}/></div>
                   </div>
                   {form.authStartTime&&form.authEndTime&&(()=>{const[sh,sm]=form.authStartTime.split(":").map(Number);const[eh,em]=form.authEndTime.split(":").map(Number);const diff=(eh*60+em-(sh*60+sm))/60;if(diff<=0) return <p className="fnote" style={{color:"var(--re)"}}>End time must be after start.</p>;if(diff>2) return <p className="fnote" style={{color:"var(--re)"}}>Duration {diff.toFixed(2)}h exceeds the 2h maximum.</p>;return null;})()}
                   <p className="fnote">Maximum 2 hours. No balance deduction.</p>
@@ -2694,8 +2694,8 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
 
               {/* ── Date fields ── */}
               {form.type&&form.type!=="Temporary Authorization"&&!isAdminDoc&&(
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:10}}>
-                  <div className="fgrp" style={{marginBottom:0}}>
+                <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)",gap:10}}>
+                  <div className="fgrp" style={{marginBottom:0,minWidth:0}}>
                     <label className="flbl">Start <span style={{color:"var(--re)"}}>*</span></label>
                     <input type="date" className="fi" value={form.start}
                       onChange={e=>{const v=e.target.value;setForm(f=>({...f,start:v,end:(!f.end||f.end<v)?v:f.end}));}}/>
@@ -2705,7 +2705,7 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
                       </select>
                     )}
                   </div>
-                  <div className="fgrp" style={{marginBottom:0}}>
+                  <div className="fgrp" style={{marginBottom:0,minWidth:0}}>
                     <label className="flbl">End <span style={{color:"var(--re)"}}>*</span></label>
                     <input type="date" className="fi" value={form.end}
                       min={form.start||undefined}
