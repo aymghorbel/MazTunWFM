@@ -2389,20 +2389,6 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
 
   const [submitting,setSubmitting]=useState(false);
 
-  // Quick date presets — fill start (and end if not set) from common shortcuts
-  function applyDatePreset(kind){
-    const now=new Date();
-    let start=new Date(now);
-    if(kind==="tomorrow") start.setDate(now.getDate()+1);
-    if(kind==="nextMon"){
-      const dow=now.getDay();
-      const offset=dow===0?1:(8-dow); // Sunday → 1 day, otherwise next Monday
-      start.setDate(now.getDate()+offset);
-    }
-    const ds=`${start.getFullYear()}-${String(start.getMonth()+1).padStart(2,"0")}-${String(start.getDate()).padStart(2,"0")}`;
-    setForm(f=>({...f,start:ds,end:f.end&&f.end>=ds?f.end:ds}));
-  }
-
   async function submit(){
     if(submitting) return;
     const isTempAuth=form.type==="Temporary Authorization";
@@ -2667,98 +2653,63 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
                 </div>
               </div>
 
-              {/* ── Balance banner with progress ── */}
+              {/* ── Balance line (compact) ── */}
               {["Annual Leave","Sick Leave","Compassionate","Recovery Leave"].includes(form.type)&&(()=>{
-                const pctUsed=availForType>0?Math.min(100,(Math.max(0,liveDc||0)/availForType)*100):0;
-                const remAfter=Math.max(0,availForType-(liveDc||0));
                 const tooMuch=(liveDc||0)>availForType;
+                const remAfter=Math.max(0,availForType-(liveDc||0));
                 return(
-                <div style={{padding:"10px 14px",background:"var(--vl)",border:`1px solid ${tooMuch?"var(--re)":"var(--v)"}`,borderRadius:"var(--rs)",fontSize:12}}>
-                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap",marginBottom:liveDc>0?6:0}}>
-                    <div style={{display:"flex",gap:14,fontSize:12,flexWrap:"wrap"}}>
-                      <span style={{color:"var(--t2)"}}>Annual: <b style={{color:"var(--gr)"}}>{annualRem}d</b></span>
-                      {(user.recoveryBalance||0)>0&&<span style={{color:"var(--t2)"}}>Recovery: <b style={{color:"var(--v)"}}>{Number(user.recoveryBalance||0)}d</b></span>}
-                    </div>
-                    {liveDc>0&&<span style={{fontWeight:700,fontSize:12,color:tooMuch?"var(--re)":"var(--gr)"}}>{tooMuch?`⚠ exceeds by ${(liveDc-availForType).toFixed(1)}d`:`${remAfter.toFixed(1)}d left after`}</span>}
+                  <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",fontSize:12,color:"var(--t2)"}}>
+                    <span>Available: <b style={{color:"var(--v)"}}>{availForType.toFixed(1)}d</b></span>
+                    {liveDc>0&&<span style={{color:tooMuch?"var(--re)":"var(--t3)"}}>· {tooMuch?`exceeds by ${(liveDc-availForType).toFixed(1)}d`:`${remAfter.toFixed(1)}d remaining after`}</span>}
                   </div>
-                  {liveDc>0&&(
-                    <div style={{height:6,background:"rgba(15,39,164,0.12)",borderRadius:3,overflow:"hidden"}}>
-                      <div style={{height:"100%",width:`${pctUsed}%`,background:tooMuch?"var(--re)":"var(--v)",transition:"width .25s ease"}}/>
-                    </div>
-                  )}
-                </div>);
+                );
               })()}
 
-              {/* ── Administrative Document fields ── */}
+              {/* ── Administrative document — compact note ── */}
               {isAdminDoc&&(
-                <div style={{padding:"12px 16px",background:"var(--vl)",border:"1px solid var(--v)",borderRadius:"var(--r)",fontSize:13}}>
-                  <div style={{fontWeight:700,color:"var(--v)",marginBottom:4}}>{icos[form.type]||"📄"} {form.type}</div>
-                  {form.type==="Work Certificate"&&<p style={{color:"var(--t2)",margin:0}}>A certificate confirming your current employment status and position at the company.</p>}
-                  {form.type==="Salary Certificate"&&<p style={{color:"var(--t2)",margin:0}}>A certificate detailing your current salary, issued for bank or visa purposes.</p>}
-                  {form.type==="Salary Advance"&&<p style={{color:"var(--t2)",margin:0}}>Request an advance on your upcoming salary. Specify the amount and reason in the comment.</p>}
-                  {form.type==="Employment Letter"&&<p style={{color:"var(--t2)",margin:0}}>A formal letter confirming your employment details for official purposes.</p>}
-                  {form.type==="Experience Letter"&&<p style={{color:"var(--t2)",margin:0}}>A letter detailing your role, responsibilities, and duration of employment.</p>}
-                  {form.type==="Other Document"&&<p style={{color:"var(--t2)",margin:0}}>Request any other administrative document. Please describe in the comment field.</p>}
-                  <p style={{fontSize:11,color:"var(--t3)",marginTop:6,marginBottom:0}}>No leave balance deduction. Requires HR approval.</p>
-                </div>
+                <p className="fnote">No balance deduction. HR approval required. Add details in the comment.</p>
               )}
 
               {/* ── Temporary Authorization fields ── */}
               {form.type==="Temporary Authorization"&&(
                 <>
-                  <div className="fgrp"><label className="flbl">Date <span style={{color:"var(--re)"}}>*</span></label><input type="date" className="fi" value={form.start} onChange={e=>setForm(f=>({...f,start:e.target.value}))}/></div>
-                  <div style={{display:"flex",gap:8}}>
-                    <div className="fgrp" style={{flex:1}}><label className="flbl">From</label><input type="time" className="fi" value={form.authStartTime} onChange={e=>setForm(f=>({...f,authStartTime:e.target.value}))}/></div>
-                    <div className="fgrp" style={{flex:1}}><label className="flbl">To (max +2h)</label><input type="time" className="fi" value={form.authEndTime} onChange={e=>setForm(f=>({...f,authEndTime:e.target.value}))}/></div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10}}>
+                    <div className="fgrp" style={{marginBottom:0}}><label className="flbl">Date <span style={{color:"var(--re)"}}>*</span></label><input type="date" className="fi" value={form.start} onChange={e=>setForm(f=>({...f,start:e.target.value}))}/></div>
+                    <div className="fgrp" style={{marginBottom:0}}><label className="flbl">From</label><input type="time" className="fi" value={form.authStartTime} onChange={e=>setForm(f=>({...f,authStartTime:e.target.value}))}/></div>
+                    <div className="fgrp" style={{marginBottom:0}}><label className="flbl">To</label><input type="time" className="fi" value={form.authEndTime} onChange={e=>setForm(f=>({...f,authEndTime:e.target.value}))}/></div>
                   </div>
-                  {form.authStartTime&&form.authEndTime&&(()=>{const[sh,sm]=form.authStartTime.split(":").map(Number);const[eh,em]=form.authEndTime.split(":").map(Number);const diff=(eh*60+em-(sh*60+sm))/60;return diff>0&&diff<=2?<p className="fnote" style={{color:"var(--gr)"}}>✓ Duration: {diff===Math.floor(diff)?diff+"h":(Math.floor(diff)>0?Math.floor(diff)+"h ":"")+((diff%1)*60)+"min"}</p>:diff>2?<p className="fnote" style={{color:"var(--re)"}}>⚠ Duration {diff.toFixed(2)}h exceeds 2h maximum</p>:diff<=0?<p className="fnote" style={{color:"var(--re)"}}>⚠ End time must be after start time</p>:null;})()}
-                  <p className="fnote">⏱ Short absence ≤ 2h. Requires line manager approval. Does not deduct leave balance.</p>
+                  {form.authStartTime&&form.authEndTime&&(()=>{const[sh,sm]=form.authStartTime.split(":").map(Number);const[eh,em]=form.authEndTime.split(":").map(Number);const diff=(eh*60+em-(sh*60+sm))/60;if(diff<=0) return <p className="fnote" style={{color:"var(--re)"}}>End time must be after start.</p>;if(diff>2) return <p className="fnote" style={{color:"var(--re)"}}>Duration {diff.toFixed(2)}h exceeds the 2h maximum.</p>;return null;})()}
+                  <p className="fnote">Maximum 2 hours. No balance deduction.</p>
                 </>
               )}
 
-              {/* ── Regular leave date fields ── */}
+              {/* ── Date fields ── */}
               {form.type&&form.type!=="Temporary Authorization"&&!isAdminDoc&&(
-                <>
-                  {/* Quick presets — set the start date in one click */}
-                  <div style={{display:"flex",gap:6,flexWrap:"wrap",fontSize:11}}>
-                    <span style={{fontSize:11,color:"var(--t3)",alignSelf:"center",marginRight:4}}>Quick:</span>
-                    {[["today","Today"],["tomorrow","Tomorrow"],["nextMon","Next Mon"]].map(([k,l])=>(
-                      <button key={k} type="button" onClick={()=>applyDatePreset(k)} style={{padding:"3px 10px",borderRadius:20,border:"1px solid var(--b)",background:"var(--surface)",color:"var(--t2)",cursor:"pointer",fontSize:11,fontWeight:600}}>{l}</button>
-                    ))}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:10}}>
+                  <div className="fgrp" style={{marginBottom:0}}>
+                    <label className="flbl">Start <span style={{color:"var(--re)"}}>*</span></label>
+                    <input type="date" className="fi" value={form.start}
+                      onChange={e=>{const v=e.target.value;setForm(f=>({...f,start:v,end:(!f.end||f.end<v)?v:f.end}));}}/>
+                    {showHalfDay&&(
+                      <select className="isel" style={{width:"100%",marginTop:5}} value={form.halfDayStart} onChange={e=>setForm(f=>({...f,halfDayStart:e.target.value}))}>
+                        <option value="">Full day</option><option value="AM">Half — AM</option><option value="PM">Half — PM</option>
+                      </select>
+                    )}
                   </div>
-                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:10}}>
-                    <div className="fgrp" style={{marginBottom:4}}>
-                      <label className="flbl">Start Date <span style={{color:"var(--re)"}}>*</span></label>
-                      <input type="date" className="fi" value={form.start}
-                        onChange={e=>{const v=e.target.value;setForm(f=>({...f,start:v,end:(!f.end||f.end<v)?v:f.end}));}}/>
-                      {showHalfDay&&(
-                        <select className="isel" style={{width:"100%",marginTop:5}} value={form.halfDayStart} onChange={e=>setForm(f=>({...f,halfDayStart:e.target.value}))}>
-                          <option value="">Full day</option><option value="AM">Half — AM</option><option value="PM">Half — PM</option>
-                        </select>
-                      )}
-                    </div>
-                    <div className="fgrp" style={{marginBottom:4}}>
-                      <label className="flbl">End Date <span style={{color:"var(--re)"}}>*</span></label>
-                      <input type="date" className="fi" value={form.end}
-                        min={form.start||undefined}
-                        style={{borderColor:dateErr?"var(--re)":""}}
-                        onChange={e=>setForm(f=>({...f,end:e.target.value}))}/>
-                      {dateErr
-                        ?<span style={{fontSize:10,color:"var(--re)",marginTop:2,display:"block"}}>⚠ End must be ≥ start date</span>
-                        :(showHalfDay&&!isSingleDay&&(
-                          <select className="isel" style={{width:"100%",marginTop:5}} value={form.halfDayEnd} onChange={e=>setForm(f=>({...f,halfDayEnd:e.target.value}))}>
-                            <option value="">Full day</option><option value="AM">Half — AM</option><option value="PM">Half — PM</option>
-                          </select>
-                        ))
-                      }
-                    </div>
+                  <div className="fgrp" style={{marginBottom:0}}>
+                    <label className="flbl">End <span style={{color:"var(--re)"}}>*</span></label>
+                    <input type="date" className="fi" value={form.end}
+                      min={form.start||undefined}
+                      style={{borderColor:dateErr?"var(--re)":""}}
+                      onChange={e=>setForm(f=>({...f,end:e.target.value}))}/>
+                    {dateErr&&<span style={{fontSize:10,color:"var(--re)",marginTop:2,display:"block"}}>End must be on or after start</span>}
+                    {!dateErr&&showHalfDay&&!isSingleDay&&(
+                      <select className="isel" style={{width:"100%",marginTop:5}} value={form.halfDayEnd} onChange={e=>setForm(f=>({...f,halfDayEnd:e.target.value}))}>
+                        <option value="">Full day</option><option value="AM">Half — AM</option><option value="PM">Half — PM</option>
+                      </select>
+                    )}
                   </div>
-                  {liveDc!==null&&liveDc>0&&(
-                    <div style={{display:"inline-flex",alignItems:"center",gap:6,padding:"4px 12px",background:"var(--vl)",border:"1px solid var(--v)",borderRadius:20,fontSize:12,color:"var(--v)",fontWeight:700}}>
-                      {liveDc===0.5?"Half day":`${liveDc} working day${liveDc!==1?"s":""}`}
-                    </div>
-                  )}
-                </>
+                </div>
               )}
 
               {/* ── Balance source selector ── */}
@@ -2774,10 +2725,8 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
               {/* ── Comment ── */}
               <div className="fgrp ff"><label className="flbl">Comment</label><textarea className="fta" value={form.comment} onChange={e=>setForm(f=>({...f,comment:e.target.value}))}/></div>
 
-              {/* ── Type-specific notes ── */}
-              {form.type==="Annual Leave"&&<p className="fnote">⚠ Must be submitted ≥15 days before. Max 7 days for field staff.</p>}
-              {form.type==="Recovery Leave"&&<p className="fnote">🔄 Deducts from your Recovery Balance — {Number(user.recoveryBalance||0)}d remaining.</p>}
-              {form.type==="Sick Leave"&&<p className="fnote">🏥 Deducts from your {form.balanceSource==="recovery"?"Recovery":"Annual Leave"} Balance.</p>}
+              {/* ── Type-specific note (collapsed to one line) ── */}
+              {form.type==="Annual Leave"&&<p className="fnote">Submit at least 15 days in advance. Field staff: max 7 days per request.</p>}
               {(form.type==="Sick Leave"||form.type==="Salary Advance")&&(
                 <div className="fgrp ff">
                   <label className="flbl">{form.type==="Sick Leave"?"Medical Certificate":"Supporting Document"} {form.type==="Sick Leave"&&<span style={{color:"var(--re)"}}>*</span>}</label>
@@ -2799,17 +2748,11 @@ function RequestsView({user,requests,setRequests,users,roles,setUsers,tsStatuses
                   )}
                 </div>
               )}
-              {form.type==="Compassionate"&&<p className="fnote">💙 Deducts from your {form.balanceSource==="recovery"?"Recovery":"Annual Leave"} Balance.</p>}
 
-              {/* ── Teammate conflict warning ── */}
+              {/* ── Teammate conflict warning (compact) ── */}
               {formConflicts.length>0&&(
-                <div style={{padding:"10px 12px",background:user.allowOverlap?"#FFF3D1":"var(--rel)",border:`1px solid ${user.allowOverlap?"#F59E0B":"var(--re)"}`,borderRadius:"var(--rs)",fontSize:12,color:user.allowOverlap?"#92400E":"#991b1b",display:"flex",alignItems:"flex-start",gap:8}}>
-                  <span style={{flexShrink:0,marginTop:1}}>{user.allowOverlap?"⚠️":"🚫"}</span>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontWeight:600}}>{formConflicts.length} teammate{formConflicts.length>1?"s have":" has"} overlapping leave</div>
-                    <div style={{fontSize:11,marginTop:2,opacity:0.9}}>{formConflicts.map(r=>`${nm(r.userId)} (${r.start}${r.end!==r.start?` → ${r.end}`:""})`).join(" · ")}</div>
-                    {!user.allowOverlap&&<div style={{marginTop:5,fontWeight:600,fontSize:11}}>Submission blocked — contact your manager to resolve the conflict.</div>}
-                  </div>
+                <div style={{padding:"8px 12px",background:user.allowOverlap?"#FFF3D1":"var(--rel)",border:`1px solid ${user.allowOverlap?"#F59E0B":"var(--re)"}`,borderRadius:"var(--rs)",fontSize:12,color:user.allowOverlap?"#92400E":"#991b1b"}}>
+                  Overlaps with {formConflicts.map(r=>nm(r.userId)).join(", ")}.{!user.allowOverlap&&" Contact your manager to resolve."}
                 </div>
               )}
             </div>
