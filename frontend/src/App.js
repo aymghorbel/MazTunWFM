@@ -223,10 +223,7 @@ const CSS = `
   --glass-tint-red:rgba(243,40,55,0.10);
 }
 body{background:var(--bg);color:var(--t);font-family:"Aptos","Segoe UI","Aptos Display",-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
-.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:#F2F3F9;position:relative;overflow:auto;isolation:isolate;}
-.login-wrap::before,.login-wrap::after{content:"";position:absolute;width:620px;height:620px;border-radius:50%;filter:blur(120px);pointer-events:none;z-index:0;}
-.login-wrap::before{top:-180px;left:-120px;background:radial-gradient(circle,#0F27A4 0%,transparent 65%);opacity:.55;}
-.login-wrap::after{bottom:-220px;right:-160px;background:radial-gradient(circle,#F32837 0%,transparent 65%);opacity:.35;}
+.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;position:relative;overflow:auto;isolation:isolate;background:radial-gradient(900px 820px at -6% -10%,rgba(93,118,234,0.55) 0%,transparent 62%),radial-gradient(820px 720px at 108% 108%,rgba(255,106,119,0.45) 0%,transparent 60%),radial-gradient(720px 720px at 58% 38%,rgba(167,139,207,0.40) 0%,transparent 65%),#F2F3F9;background-attachment:fixed;}
 .login-card{position:relative;z-index:1;background:rgba(255,255,255,0.82);backdrop-filter:blur(26px) saturate(180%);-webkit-backdrop-filter:blur(26px) saturate(180%);border:1px solid rgba(11,16,32,0.08);border-radius:20px;padding:40px 36px;width:400px;max-width:95vw;box-shadow:0 1px 0 rgba(255,255,255,.95) inset, 0 30px 60px rgba(11,16,32,.18), 0 8px 20px rgba(11,16,32,.08);}
 .login-logo{display:flex;align-items:center;gap:12px;margin-bottom:30px;}
 .login-logo-ico{width:46px;height:46px;border-radius:10px;background:linear-gradient(135deg,#0F27A4,#02178A);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;color:#fff;font-family:'JetBrains Mono',monospace;box-shadow:0 1px 0 rgba(255,255,255,.25) inset, 0 6px 14px rgba(15,39,164,.30);}
@@ -242,10 +239,7 @@ body{background:var(--bg);color:var(--t);font-family:"Aptos","Segoe UI","Aptos D
 .profile-menu-item.danger{color:var(--re);}
 .profile-menu-item.danger:hover{background:var(--rel);}
 .profile-menu-sep{height:1px;background:var(--b);margin:4px 0;}
-.app{display:flex;height:100vh;width:100vw;overflow:hidden;position:relative;isolation:isolate;}
-.app::before,.app::after{content:"";position:fixed;width:620px;height:620px;border-radius:50%;filter:blur(120px);pointer-events:none;z-index:0;opacity:.35;}
-.app::before{top:-240px;left:-160px;background:radial-gradient(circle,#0F27A4 0%,transparent 65%);}
-.app::after{bottom:-240px;right:-160px;background:radial-gradient(circle,#F32837 0%,transparent 65%);opacity:.18;}
+.app{display:flex;height:100vh;width:100vw;overflow:hidden;position:relative;isolation:isolate;background:radial-gradient(900px 820px at -6% -10%,rgba(93,118,234,0.42) 0%,transparent 62%),radial-gradient(820px 720px at 108% 108%,rgba(255,106,119,0.32) 0%,transparent 60%),radial-gradient(720px 720px at 58% 38%,rgba(167,139,207,0.28) 0%,transparent 65%),#F2F3F9;background-attachment:fixed;}
 .sb,.main{position:relative;z-index:1;}
 .sb{width:240px;min-width:240px;background:var(--surface);border-right:1px solid var(--b);display:flex;flex-direction:column;}
 .sb-top{padding:16px 16px 12px;border-bottom:1px solid var(--b);}
@@ -278,7 +272,9 @@ body{background:var(--bg);color:var(--t);font-family:"Aptos","Segoe UI","Aptos D
 .tab{padding:6px 14px;border-radius:5px;cursor:pointer;font-size:13px;font-weight:500;color:var(--t2);transition:all .12s;white-space:nowrap;}
 .tab:hover{color:var(--t);}
 .tab.active{background:var(--surface);color:var(--t);font-weight:700;box-shadow:var(--sh);}
-.card{position:relative;background:rgba(255,255,255,0.82);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);border:1px solid rgba(11,16,32,0.08);border-radius:10px;padding:18px;box-shadow:var(--sh);}
+.card{position:relative;background:rgba(255,255,255,0.68);backdrop-filter:blur(22px) saturate(180%);-webkit-backdrop-filter:blur(22px) saturate(180%);border:1px solid rgba(11,16,32,0.08);border-radius:10px;padding:18px;box-shadow:var(--sh);overflow:hidden;}
+.card::before{content:"";position:absolute;inset:0;pointer-events:none;border-radius:inherit;background:linear-gradient(180deg,rgba(255,255,255,.85) 0%,transparent 14%),linear-gradient(0deg,rgba(255,255,255,.10) 0%,transparent 12%);mix-blend-mode:screen;opacity:.9;z-index:0;}
+.card>*{position:relative;z-index:1;}
 .card-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
 .card-title{font-size:14px;font-weight:700;color:var(--t);}
 .card-sub{font-size:12px;color:var(--t3);margin-top:1px;}
@@ -729,7 +725,7 @@ function LoginScreen({onLogin, onVerifyTOTP, cs={}}) {
     <div className="login-logo">
       {cs.logoBase64
         ? <img src={cs.logoBase64} alt="logo" style={{width:46,height:46,borderRadius:12,objectFit:"contain"}}/>
-        : <div className="login-logo-ico">{(cs.companyName||"ME").slice(0,2).toUpperCase()}</div>}
+        : <img src="/mazarine-logo.svg" alt="Mazarine Energy" style={{height:46,width:"auto",objectFit:"contain"}}/>}
       <div>
         <div style={{fontSize:20,fontWeight:800,color:"var(--t)"}}>{cs.companyName||"MAZARINE"}</div>
         <div style={{fontSize:11,color:"var(--t3)",fontWeight:500}}>{cs.companySubtitle||"Energy Tunisia"} · Timesheet Platform</div>
@@ -7478,7 +7474,7 @@ export default function App() {
           <div style={{padding:"14px 16px",borderBottom:"1px solid var(--b)",display:"flex",alignItems:"center",gap:10,cursor:"pointer"}} onClick={()=>{setView("dashboard");setSidebarOpen(false);}}>
             {companySetting.logoBase64
               ? <img src={companySetting.logoBase64} alt="logo" style={{width:32,height:32,borderRadius:6,objectFit:"contain",flexShrink:0}}/>
-              : <div className="logo-ico" style={{width:32,height:32,fontSize:12,borderRadius:6}}>{(companySetting.companyName||"ME").slice(0,2).toUpperCase()}</div>}
+              : <img src="/mazarine-logo.svg" alt="Mazarine Energy" style={{height:32,width:"auto",objectFit:"contain",flexShrink:0}}/>}
             <div style={{minWidth:0}}>
               <div className="logo-co" style={{fontSize:14,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{companySetting.companyName||"MAZARINE"}</div>
               {companySetting.companySubtitle && <div className="logo-sub" style={{fontSize:10,color:"var(--t3)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{companySetting.companySubtitle}</div>}
