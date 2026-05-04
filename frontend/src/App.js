@@ -1615,7 +1615,10 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
                   const isLeaveEntry=LEAVE_ACTS_PS.includes(e.activity)||isPending;
                   const usedProjIds=e.allocations.map(a=>Number(a.projectId));const canAdd=tot<0.99&&!isLocked&&!isLeaveEntry&&openProj.some(p=>!usedProjIds.includes(p.id));
                   const ac=actColorFn(e.activity);
+                  // Editable expansion (allocations modifiable) only when truly draft and a working day
                   const canExpand=!isLocked&&!isLeaveEntry&&!isPending;
+                  // Read-only details (allocation list + daily report) shown for any non-leave/non-pending day, including submitted/approved ones
+                  const canViewDetails=!isLeaveEntry&&!isPending&&(canExpand||e.allocations.length>0||!!e.dailyReport);
                   const canSelect=!e.locked&&!isLocked&&!isPending;
                   // Field rotation context: highlight approved/pending requests that land on OFF/EXTRA days
                   const fieldRot=user.type==="field"?getFieldDayType(user.id,e.date,rotations):null;
@@ -1623,13 +1626,13 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
                   const rowBg=outOfRotation?"#fee2e2":isPending?"var(--aml)":undefined;
                   return (
                     <>
-                      <tr key={e.id} className={isSel?"sel-row":""} style={{cursor:canExpand?"pointer":"default",opacity:isLocked?.85:1,background:rowBg}}
-                        onClick={()=>{ if(canSelect){toggleSel(e.id);} else if(canExpand){toggleRow(e.id);} }}>
+                      <tr key={e.id} className={isSel?"sel-row":""} style={{cursor:canViewDetails?"pointer":"default",opacity:isLocked?.85:1,background:rowBg}}
+                        onClick={()=>{ if(canSelect){toggleSel(e.id);} else if(canViewDetails){toggleRow(e.id);} }}>
                         {!isLocked&&<td style={{paddingLeft:10}} onClick={ev=>ev.stopPropagation()}>
                           {canSelect&&<input type="checkbox" className="cb" checked={isSel} onChange={()=>toggleSel(e.id)}/>}
                         </td>}
-                        <td style={{padding:"8px 6px",textAlign:"center"}} onClick={ev=>{ev.stopPropagation();canExpand&&toggleRow(e.id);}}>
-                          {canExpand&&<span className={`exp-arrow${isOpen?" open":""}`}>▶</span>}
+                        <td style={{padding:"8px 6px",textAlign:"center"}} onClick={ev=>{ev.stopPropagation();canViewDetails&&toggleRow(e.id);}}>
+                          {canViewDetails&&<span className={`exp-arrow${isOpen?" open":""}`}>▶</span>}
                           {e.dailyReport&&!isOpen&&<span title={e.dailyReport} style={{fontSize:9,marginLeft:3,color:"var(--v)"}}>📝</span>}
                         </td>
                         <td style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,color:"#000"}}>
@@ -1651,31 +1654,32 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
                         <td>{isLeaveEntry||isPending?<span style={{fontSize:11,color:"var(--t3)"}}>—</span>:<span className={allocOk&&e.allocations.length>0?"ok":"warn"}>{e.allocations.length===0?"0%":(tot*100).toFixed(0)+"%"}</span>}</td>
                         <td>{isPending?<span className="badge bam">⏳ Pending</span>:isLocked?<span className="badge bam">🔒 Locked</span>:e.locked?<span className="badge bgr">✓ Auto</span>:isSel?<span className="badge bv">☑ Selected</span>:<span className="badge bgr2">Draft</span>}</td>
                       </tr>
-                      {isOpen&&canExpand&&(
+                      {isOpen&&canViewDetails&&(
                         <tr key={e.id+"_al"}>
                           <td colSpan={user.type==="field"?9:8} style={{padding:0}}>
                             <div className="alloc-wrap">
-                              <div style={{display:"flex",alignItems:"center",padding:"5px 12px 3px 38px",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",color:"var(--t3)",gap:8}}>
+                              {e.allocations.length>0&&<div style={{display:"flex",alignItems:"center",padding:"5px 12px 3px 38px",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",color:"var(--t3)",gap:8}}>
                                 <span style={{flex:"0 0 155px"}}>Project</span><span style={{flex:1}}>Bar</span><span style={{width:60,textAlign:"center"}}>Amount</span><span style={{flex:1}}>Note</span><span style={{width:22}}/>
-                              </div>
+                              </div>}
                               {e.allocations.map(a=>{
                                 const ap=projects.find(p=>p.id===a.projectId);
                                 return (
                                   <div className="alloc-row" key={a.id}>
                                     <div style={{flex:"0 0 155px",display:"flex",alignItems:"center",gap:6}}>
                                       <div className="dot" style={{background:ap?.color||"#94a3b8"}}/>
-                                      <select className="isel" style={{maxWidth:142}} value={a.projectId} onChange={ev=>updAlloc(e.id,a.id,"projectId",Number(ev.target.value))}>
+                                      <select className="isel" style={{maxWidth:142}} value={a.projectId} disabled={!canExpand} onChange={ev=>updAlloc(e.id,a.id,"projectId",Number(ev.target.value))}>
                                         {openProj.filter(p=>!e.allocations.filter(a2=>a2.id!==a.id).map(a2=>Number(a2.projectId)).includes(p.id)).map(p=><option key={p.id} value={p.id}>{p.code}</option>)}
                                       </select>
                                     </div>
                                     <div style={{flex:1,padding:"0 8px"}}><div className="abar"><div className="abar-fill" style={{width:`${a.allocation*100}%`,background:ap?.color||"#94a3b8"}}/></div></div>
-                                    <div style={{width:60}}><select className="isel" style={{width:56,textAlign:"center"}} value={a.allocation} onChange={ev=>updAlloc(e.id,a.id,"allocation",parseFloat(ev.target.value))}>{ALLOC_STEPS.map(o=><option key={o} value={o}>{(o*100).toFixed(0)}%</option>)}</select></div>
-                                    <div style={{flex:1,padding:"0 8px"}}><input className="iinp" placeholder="Note…" value={a.note} onChange={ev=>updAlloc(e.id,a.id,"note",ev.target.value)}/></div>
-                                    <span className="del-btn" onClick={()=>delAlloc(e.id,a.id)}>×</span>
+                                    <div style={{width:60}}><select className="isel" style={{width:56,textAlign:"center"}} value={a.allocation} disabled={!canExpand} onChange={ev=>updAlloc(e.id,a.id,"allocation",parseFloat(ev.target.value))}>{ALLOC_STEPS.map(o=><option key={o} value={o}>{(o*100).toFixed(0)}%</option>)}</select></div>
+                                    <div style={{flex:1,padding:"0 8px"}}><input className="iinp" placeholder="Note…" value={a.note} disabled={!canExpand} onChange={ev=>updAlloc(e.id,a.id,"note",ev.target.value)}/></div>
+                                    {canExpand&&<span className="del-btn" onClick={()=>delAlloc(e.id,a.id)}>×</span>}
+                                    {!canExpand&&<span style={{width:22}}/>}
                                   </div>
                                 );
                               })}
-                              <div className="alloc-footer">
+                              {e.allocations.length>0&&<div className="alloc-footer">
                                 <div style={{display:"flex",alignItems:"center",gap:10}}>
                                   {canAdd&&<span className="add-proj-btn" onClick={()=>addAlloc(e.id)}>+ Add Project</span>}
                                   <span style={{fontSize:11,color:"var(--t3)"}}>{e.allocations.map(a=>{const p=projects.find(x=>x.id===a.projectId);return`${p?.code||"?"} ${(a.allocation*100).toFixed(0)}%`;}).join(" · ")}</span>
@@ -1684,17 +1688,18 @@ function TimesheetView({user,projects,timesheetData,setTimesheetData,tsStatuses,
                                   Total: {(e.allocations.reduce((s,a)=>s+a.allocation,0)*100).toFixed(0)}%
                                   {Math.abs(e.allocations.reduce((s,a)=>s+a.allocation,0)-1)>=0.01&&" ⚠ must = 100%"}
                                 </span>
-                              </div>
+                              </div>}
                               {/* Daily report — optional free-form work log for this day */}
-                              <div style={{padding:"8px 12px 12px 38px",borderTop:"1px solid var(--b)",marginTop:6}}>
-                                <label style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",color:"var(--t3)",display:"block",marginBottom:4}}>Daily report <span style={{textTransform:"none",letterSpacing:0,fontWeight:400,color:"var(--t3)"}}>· optional</span></label>
+                              <div style={{padding:"8px 12px 12px 38px",borderTop:e.allocations.length>0?"1px solid var(--b)":"none",marginTop:e.allocations.length>0?6:0}}>
+                                <label style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",color:"var(--t3)",display:"block",marginBottom:4}}>Daily report{!canExpand?" · read-only":<span style={{textTransform:"none",letterSpacing:0,fontWeight:400,color:"var(--t3)"}}> · optional</span>}</label>
                                 <textarea
                                   className="fta"
-                                  placeholder="What did you work on today? Add tasks, blockers, key decisions…"
+                                  placeholder={canExpand?"What did you work on today? Add tasks, blockers, key decisions…":"No report for this day"}
                                   value={e.dailyReport||""}
+                                  disabled={!canExpand}
                                   onChange={ev=>updEntry(e.id,"dailyReport",ev.target.value)}
                                   rows={2}
-                                  style={{minHeight:48,fontSize:12.5,padding:"7px 10px"}}
+                                  style={{minHeight:48,fontSize:12.5,padding:"7px 10px",opacity:!canExpand?0.85:1}}
                                 />
                               </div>
                             </div>
